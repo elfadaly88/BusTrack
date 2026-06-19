@@ -2,7 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-const dbPath = path.join(__dirname, 'bustrack.db');
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'bustrack.db');
 const db = new sqlite3.Database(dbPath);
 
 // Helper function to run DB queries as promises

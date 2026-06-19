@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const { initDb, dbAll, dbGet, dbRun } = require('./db');
 
-const JWT_SECRET = 'bustrack_super_secret_jwt_key_2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'bustrack_super_secret_jwt_key_2026';
 const PORT = process.env.PORT || 3000;
 
 const app = express();
