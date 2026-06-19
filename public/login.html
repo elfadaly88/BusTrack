@@ -57,7 +57,7 @@
     }
     .presets-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
     }
     .preset-btn {
@@ -110,6 +110,9 @@
     <div class="presets-container">
       <span class="presets-title">تسجيل دخول سريع للتجربة (Quick Presets)</span>
       <div class="presets-grid">
+        <button class="preset-btn" onclick="applyPreset('super@bustrack.com', 'super123')">
+          <i class="fas fa-crown" style="color: #ffd700;"></i> المنصة
+        </button>
         <button class="preset-btn" onclick="applyPreset('admin@bustrack.com', 'admin123')">
           <i class="fas fa-user-shield"></i> المسؤول
         </button>
@@ -130,7 +133,8 @@
     const userStr = localStorage.getItem('bustrack_user');
     if (token && userStr) {
       const user = JSON.parse(userStr);
-      if (user.role === 'admin') window.location.href = '/admin.html';
+      if (user.role === 'super_admin') window.location.href = '/super.html';
+      else if (user.role === 'admin') window.location.href = '/admin.html';
       else if (user.role === 'driver') window.location.href = '/driver.html';
       else window.location.href = '/passenger.html';
     }
@@ -154,7 +158,8 @@
         showToast('تم تسجيل الدخول بنجاح!', 'success');
         
         setTimeout(() => {
-          if (data.user.role === 'admin') window.location.href = '/admin.html';
+          if (data.user.role === 'super_admin') window.location.href = '/super.html';
+          else if (data.user.role === 'admin') window.location.href = '/admin.html';
           else if (data.user.role === 'driver') window.location.href = '/driver.html';
           else window.location.href = '/passenger.html';
         }, 800);

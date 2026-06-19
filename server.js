@@ -33,10 +33,24 @@ const authMiddleware = (req, res, next) => {
     return res.status(401).json({ error: 'صيغة رمز التحقق غير صالحة (Invalid token format)' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+  jwt.verify(token, JWT_SECRET, async (err, decoded) => {
     if (err) {
       return res.status(403).json({ error: 'رمز التحقق غير صالح أو انتهت صلاحيته (Invalid or expired token)' });
     }
+    
+    // If user is not super_admin and has a tenant_id, check if the tenant is active
+    if (decoded.role !== 'super_admin' && decoded.tenant_id) {
+      try {
+        const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [decoded.tenant_id]);
+        if (!tenant || tenant.status !== 'active') {
+          return res.status(403).json({ error: 'تم تجميد اشتراك المؤسسة التابع لها هذا الحساب (Account suspended or tenant inactive)' });
+        }
+      } catch (dbErr) {
+        console.error(dbErr);
+        return res.status(500).json({ error: 'خطأ في التحقق من حالة المؤسسة (Error checking tenant status)' });
+      }
+    }
+
     req.user = decoded;
     next();
   });
@@ -71,8 +85,16 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة (Invalid email or password)' });
     }
 
+    // Check tenant active status if not super_admin
+    if (user.role !== 'super_admin' && user.tenant_id) {
+      const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [user.tenant_id]);
+      if (!tenant || tenant.status !== 'active') {
+        return res.status(403).json({ error: 'تم تجميد اشتراك المؤسسة التابع لها هذا الحساب (This organization\'s subscription is suspended)' });
+      }
+    }
+
     const token = jwt.sign(
-      { id: user.id, name: user.name, email: user.email, role: user.role },
+      { id: user.id, name: user.name, email: user.email, role: user.role, tenant_id: user.tenant_id },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -84,7 +106,8 @@ app.post('/api/auth/login', async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        phone: user.phone
+        phone: user.phone,
+        tenant_id: user.tenant_id
       }
     });
   } catch (error) {
@@ -95,7 +118,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
-    const user = await dbGet('SELECT id, name, email, phone, role FROM users WHERE id = ?', [req.user.id]);
+    const user = await dbGet('SELECT id, name, email, phone, role, tenant_id FROM users WHERE id = ?', [req.user.id]);
     if (!user) {
       return res.status(404).json({ error: 'المستخدم غير موجود (User not found)' });
     }
@@ -111,10 +134,10 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
 // Get Stats
 app.get('/api/admin/stats', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    const activeTrips = await dbGet("SELECT COUNT(*) as count FROM trips WHERE status = 'active'");
-    const totalBuses = await dbGet("SELECT COUNT(*) as count FROM buses WHERE status = 'active'");
-    const totalDrivers = await dbGet("SELECT COUNT(*) as count FROM users WHERE role = 'driver'");
-    const totalLines = await dbGet("SELECT COUNT(*) as count FROM lines WHERE status = 'active'");
+    const activeTrips = await dbGet("SELECT COUNT(*) as count FROM trips WHERE tenant_id = ? AND status = 'active'", [req.user.tenant_id]);
+    const totalBuses = await dbGet("SELECT COUNT(*) as count FROM buses WHERE tenant_id = ? AND status = 'active'", [req.user.tenant_id]);
+    const totalDrivers = await dbGet("SELECT COUNT(*) as count FROM users WHERE tenant_id = ? AND role = 'driver'", [req.user.tenant_id]);
+    const totalLines = await dbGet("SELECT COUNT(*) as count FROM lines WHERE tenant_id = ? AND status = 'active'", [req.user.tenant_id]);
 
     res.json({
       activeTrips: activeTrips.count,
@@ -131,7 +154,7 @@ app.get('/api/admin/stats', authMiddleware, roleMiddleware(['admin']), async (re
 // Buses CRUD
 app.get('/api/admin/buses', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    const buses = await dbAll('SELECT * FROM buses');
+    const buses = await dbAll('SELECT * FROM buses WHERE tenant_id = ?', [req.user.tenant_id]);
     res.json(buses);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -142,8 +165,8 @@ app.post('/api/admin/buses', authMiddleware, roleMiddleware(['admin']), async (r
   const { bus_number, plate_number, capacity, status } = req.body;
   try {
     const result = await dbRun(
-      'INSERT INTO buses (bus_number, plate_number, capacity, status) VALUES (?, ?, ?, ?)',
-      [bus_number, plate_number, capacity || 30, status || 'active']
+      'INSERT INTO buses (tenant_id, bus_number, plate_number, capacity, status) VALUES (?, ?, ?, ?, ?)',
+      [req.user.tenant_id, bus_number, plate_number, capacity || 30, status || 'active']
     );
     res.json({ id: result.lastID, bus_number, plate_number, capacity, status });
   } catch (error) {
@@ -155,8 +178,8 @@ app.put('/api/admin/buses/:id', authMiddleware, roleMiddleware(['admin']), async
   const { bus_number, plate_number, capacity, status } = req.body;
   try {
     await dbRun(
-      'UPDATE buses SET bus_number = ?, plate_number = ?, capacity = ?, status = ? WHERE id = ?',
-      [bus_number, plate_number, capacity, status, req.params.id]
+      'UPDATE buses SET bus_number = ?, plate_number = ?, capacity = ?, status = ? WHERE id = ? AND tenant_id = ?',
+      [bus_number, plate_number, capacity, status, req.params.id, req.user.tenant_id]
     );
     res.json({ success: true });
   } catch (error) {
@@ -166,7 +189,7 @@ app.put('/api/admin/buses/:id', authMiddleware, roleMiddleware(['admin']), async
 
 app.delete('/api/admin/buses/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    await dbRun('DELETE FROM buses WHERE id = ?', [req.params.id]);
+    await dbRun('DELETE FROM buses WHERE id = ? AND tenant_id = ?', [req.params.id, req.user.tenant_id]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -176,7 +199,7 @@ app.delete('/api/admin/buses/:id', authMiddleware, roleMiddleware(['admin']), as
 // Drivers CRUD (Users table with role='driver')
 app.get('/api/admin/drivers', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    const drivers = await dbAll("SELECT id, name, email, phone, role FROM users WHERE role = 'driver'");
+    const drivers = await dbAll("SELECT id, name, email, phone, role FROM users WHERE tenant_id = ? AND role = 'driver'", [req.user.tenant_id]);
     res.json(drivers);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -191,8 +214,8 @@ app.post('/api/admin/drivers', authMiddleware, roleMiddleware(['admin']), async 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const result = await dbRun(
-      "INSERT INTO users (name, email, phone, password, role) VALUES (?, ?, ?, ?, 'driver')",
-      [name, email, phone, hashedPassword]
+      "INSERT INTO users (tenant_id, name, email, phone, password, role) VALUES (?, ?, ?, ?, ?, 'driver')",
+      [req.user.tenant_id, name, email, phone, hashedPassword]
     );
     res.json({ id: result.lastID, name, email, phone, role: 'driver' });
   } catch (error) {
@@ -206,13 +229,13 @@ app.put('/api/admin/drivers/:id', authMiddleware, roleMiddleware(['admin']), asy
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
       await dbRun(
-        "UPDATE users SET name = ?, email = ?, phone = ?, password = ? WHERE id = ? AND role = 'driver'",
-        [name, email, phone, hashedPassword, req.params.id]
+        "UPDATE users SET name = ?, email = ?, phone = ?, password = ? WHERE id = ? AND tenant_id = ? AND role = 'driver'",
+        [name, email, phone, hashedPassword, req.params.id, req.user.tenant_id]
       );
     } else {
       await dbRun(
-        "UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ? AND role = 'driver'",
-        [name, email, phone, req.params.id]
+        "UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ? AND tenant_id = ? AND role = 'driver'",
+        [name, email, phone, req.params.id, req.user.tenant_id]
       );
     }
     res.json({ success: true });
@@ -223,7 +246,7 @@ app.put('/api/admin/drivers/:id', authMiddleware, roleMiddleware(['admin']), asy
 
 app.delete('/api/admin/drivers/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    await dbRun("DELETE FROM users WHERE id = ? AND role = 'driver'", [req.params.id]);
+    await dbRun("DELETE FROM users WHERE id = ? AND tenant_id = ? AND role = 'driver'", [req.params.id, req.user.tenant_id]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -233,7 +256,15 @@ app.delete('/api/admin/drivers/:id', authMiddleware, roleMiddleware(['admin']), 
 // Lines and Stations CRUD
 app.get('/api/admin/lines', authMiddleware, async (req, res) => {
   try {
-    const lines = await dbAll('SELECT * FROM lines');
+    // If passenger/driver, filter by their tenant_id too
+    const tenantId = req.user.tenant_id;
+    if (!tenantId && req.user.role !== 'super_admin') {
+      return res.json([]);
+    }
+    const lines = tenantId 
+      ? await dbAll('SELECT * FROM lines WHERE tenant_id = ?', [tenantId])
+      : await dbAll('SELECT * FROM lines'); // Super admin sees all lines
+    
     for (let line of lines) {
       line.stations = await dbAll('SELECT * FROM stations WHERE line_id = ? ORDER BY sequence_order ASC', [line.id]);
     }
@@ -253,8 +284,8 @@ app.post('/api/admin/lines', authMiddleware, roleMiddleware(['admin']), async (r
     // Transaction to insert line and stations
     await dbRun('BEGIN TRANSACTION;');
     const lineResult = await dbRun(
-      'INSERT INTO lines (name, start_point, end_point, status) VALUES (?, ?, ?, ?)',
-      [name, start_point, end_point, 'active']
+      'INSERT INTO lines (tenant_id, name, start_point, end_point, status) VALUES (?, ?, ?, ?, ?)',
+      [req.user.tenant_id, name, start_point, end_point, 'active']
     );
     const lineId = lineResult.lastID;
 
@@ -278,10 +309,16 @@ app.put('/api/admin/lines/:id', authMiddleware, roleMiddleware(['admin']), async
   const { name, start_point, end_point, stations } = req.body;
   const lineId = req.params.id;
   try {
+    // Verify ownership
+    const existingLine = await dbGet('SELECT id FROM lines WHERE id = ? AND tenant_id = ?', [lineId, req.user.tenant_id]);
+    if (!existingLine) {
+      return res.status(403).json({ error: 'غير مصرح لك بتعديل هذا الخط (Unauthorized to modify this line)' });
+    }
+
     await dbRun('BEGIN TRANSACTION;');
     await dbRun(
-      'UPDATE lines SET name = ?, start_point = ?, end_point = ? WHERE id = ?',
-      [name, start_point, end_point, lineId]
+      'UPDATE lines SET name = ?, start_point = ?, end_point = ? WHERE id = ? AND tenant_id = ?',
+      [name, start_point, end_point, lineId, req.user.tenant_id]
     );
 
     // Delete existing stations
@@ -305,7 +342,11 @@ app.put('/api/admin/lines/:id', authMiddleware, roleMiddleware(['admin']), async
 
 app.delete('/api/admin/lines/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    await dbRun('DELETE FROM lines WHERE id = ?', [req.params.id]);
+    const existingLine = await dbGet('SELECT id FROM lines WHERE id = ? AND tenant_id = ?', [req.params.id, req.user.tenant_id]);
+    if (!existingLine) {
+      return res.status(403).json({ error: 'غير مصرح لك بحذف هذا الخط (Unauthorized to delete this line)' });
+    }
+    await dbRun('DELETE FROM lines WHERE id = ? AND tenant_id = ?', [req.params.id, req.user.tenant_id]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -315,14 +356,30 @@ app.delete('/api/admin/lines/:id', authMiddleware, roleMiddleware(['admin']), as
 // Active Trips Admin/General List
 app.get('/api/admin/trips', authMiddleware, async (req, res) => {
   try {
-    const trips = await dbAll(`
-      SELECT t.*, l.name as line_name, u.name as driver_name, b.bus_number
-      FROM trips t
-      JOIN lines l ON t.line_id = l.id
-      JOIN users u ON t.driver_id = u.id
-      JOIN buses b ON t.bus_id = b.id
-      ORDER BY t.id DESC
-    `);
+    const tenantId = req.user.tenant_id;
+    if (!tenantId && req.user.role !== 'super_admin') {
+      return res.json([]);
+    }
+    
+    // Super admin sees all, normal tenant users see only their tenant's trips
+    const trips = tenantId
+      ? await dbAll(`
+          SELECT t.*, l.name as line_name, u.name as driver_name, b.bus_number
+          FROM trips t
+          JOIN lines l ON t.line_id = l.id
+          JOIN users u ON t.driver_id = u.id
+          JOIN buses b ON t.bus_id = b.id
+          WHERE t.tenant_id = ?
+          ORDER BY t.id DESC
+        `, [tenantId])
+      : await dbAll(`
+          SELECT t.*, l.name as line_name, u.name as driver_name, b.bus_number
+          FROM trips t
+          JOIN lines l ON t.line_id = l.id
+          JOIN users u ON t.driver_id = u.id
+          JOIN buses b ON t.bus_id = b.id
+          ORDER BY t.id DESC
+        `);
     res.json(trips);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -335,21 +392,30 @@ app.post('/api/admin/trips', authMiddleware, roleMiddleware(['admin']), async (r
     return res.status(400).json({ error: 'الرجاء ملء جميع بيانات الرحلة المجدولة' });
   }
   try {
+    // Verify line, driver, and bus belong to the tenant
+    const line = await dbGet('SELECT id FROM lines WHERE id = ? AND tenant_id = ?', [line_id, req.user.tenant_id]);
+    const driver = await dbGet("SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role = 'driver'", [driver_id, req.user.tenant_id]);
+    const bus = await dbGet('SELECT id FROM buses WHERE id = ? AND tenant_id = ?', [bus_id, req.user.tenant_id]);
+    
+    if (!line || !driver || !bus) {
+      return res.status(400).json({ error: 'الخط أو السائق أو الحافلة غير موجود في هذه المؤسسة' });
+    }
+
     // Check if driver already has an active or scheduled trip
-    const activeDriver = await dbGet("SELECT id FROM trips WHERE driver_id = ? AND status != 'completed'", [driver_id]);
+    const activeDriver = await dbGet("SELECT id FROM trips WHERE driver_id = ? AND tenant_id = ? AND status != 'completed'", [driver_id, req.user.tenant_id]);
     if (activeDriver) {
       return res.status(400).json({ error: 'السائق لديه رحلة نشطة أو مجدولة بالفعل (Driver has an active/scheduled trip)' });
     }
 
     // Check if bus is already in use
-    const activeBus = await dbGet("SELECT id FROM trips WHERE bus_id = ? AND status != 'completed'", [bus_id]);
+    const activeBus = await dbGet("SELECT id FROM trips WHERE bus_id = ? AND tenant_id = ? AND status != 'completed'", [bus_id, req.user.tenant_id]);
     if (activeBus) {
       return res.status(400).json({ error: 'الحافلة مستخدمة حالياً في رحلة أخرى (Bus is already active)' });
     }
 
     const result = await dbRun(
-      "INSERT INTO trips (line_id, driver_id, bus_id, status) VALUES (?, ?, ?, 'scheduled')",
-      [line_id, driver_id, bus_id]
+      "INSERT INTO trips (tenant_id, line_id, driver_id, bus_id, status) VALUES (?, ?, ?, ?, 'scheduled')",
+      [req.user.tenant_id, line_id, driver_id, bus_id]
     );
     res.json({ id: result.lastID, line_id, driver_id, bus_id, status: 'scheduled' });
   } catch (error) {
@@ -359,7 +425,7 @@ app.post('/api/admin/trips', authMiddleware, roleMiddleware(['admin']), async (r
 
 app.delete('/api/admin/trips/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    await dbRun('DELETE FROM trips WHERE id = ?', [req.params.id]);
+    await dbRun('DELETE FROM trips WHERE id = ? AND tenant_id = ?', [req.params.id, req.user.tenant_id]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -371,14 +437,14 @@ app.delete('/api/admin/trips/:id', authMiddleware, roleMiddleware(['admin']), as
 
 app.get('/api/driver/trips', authMiddleware, roleMiddleware(['driver']), async (req, res) => {
   try {
-    // Get scheduled or active trip for driver
+    // Get scheduled or active trip for driver, scoped to tenant
     const trips = await dbAll(`
       SELECT t.*, l.name as line_name, l.start_point, l.end_point, b.bus_number, b.plate_number
       FROM trips t
       JOIN lines l ON t.line_id = l.id
       JOIN buses b ON t.bus_id = b.id
-      WHERE t.driver_id = ? AND t.status != 'completed'
-    `, [req.user.id]);
+      WHERE t.driver_id = ? AND t.tenant_id = ? AND t.status != 'completed'
+    `, [req.user.id, req.user.tenant_id]);
     
     // Add stations to trips
     for (let trip of trips) {
@@ -408,9 +474,9 @@ app.get('/api/driver/trips', authMiddleware, roleMiddleware(['driver']), async (
 app.post('/api/driver/start-trip', authMiddleware, roleMiddleware(['driver']), async (req, res) => {
   const { trip_id } = req.body;
   try {
-    const trip = await dbGet('SELECT * FROM trips WHERE id = ? AND driver_id = ?', [trip_id, req.user.id]);
+    const trip = await dbGet('SELECT * FROM trips WHERE id = ? AND driver_id = ? AND tenant_id = ?', [trip_id, req.user.id, req.user.tenant_id]);
     if (!trip) {
-      return res.status(404).json({ error: 'الرحلة غير موجودة (Trip not found)' });
+      return res.status(404).json({ error: 'الرحلة غير موجودة أو غير تابعة لك (Trip not found or unauthorized)' });
     }
 
     const firstStation = await dbGet('SELECT latitude, longitude FROM stations WHERE line_id = ? ORDER BY sequence_order ASC LIMIT 1', [trip.line_id]);
@@ -419,12 +485,12 @@ app.post('/api/driver/start-trip', authMiddleware, roleMiddleware(['driver']), a
 
     const startTime = new Date().toISOString();
     await dbRun(
-      "UPDATE trips SET status = 'active', start_time = ?, current_latitude = ?, current_longitude = ? WHERE id = ?",
-      [startTime, startLat, startLng, trip_id]
+      "UPDATE trips SET status = 'active', start_time = ?, current_latitude = ?, current_longitude = ? WHERE id = ? AND tenant_id = ?",
+      [startTime, startLat, startLng, trip_id, req.user.tenant_id]
     );
 
-    // Notify admins and passengers of start
-    io.emit('trip_started', { trip_id, line_id: trip.line_id, start_time: startTime, current_latitude: startLat, current_longitude: startLng });
+    // Notify admins and passengers of start, isolated by tenant
+    io.to(`tenant_${req.user.tenant_id}`).emit('trip_started', { trip_id, line_id: trip.line_id, start_time: startTime, current_latitude: startLat, current_longitude: startLng });
 
     res.json({ success: true, status: 'active', start_time: startTime, current_latitude: startLat, current_longitude: startLng });
   } catch (error) {
@@ -435,6 +501,12 @@ app.post('/api/driver/start-trip', authMiddleware, roleMiddleware(['driver']), a
 app.post('/api/driver/arrive-station', authMiddleware, roleMiddleware(['driver']), async (req, res) => {
   const { trip_id, station_id } = req.body;
   try {
+    // Verify trip ownership
+    const trip = await dbGet('SELECT tenant_id FROM trips WHERE id = ? AND driver_id = ? AND tenant_id = ?', [trip_id, req.user.id, req.user.tenant_id]);
+    if (!trip) {
+      return res.status(403).json({ error: 'غير مصرح لك بتحديث هذه الرحلة (Unauthorized)' });
+    }
+
     const time = new Date().toISOString();
     
     // Check if already registered
@@ -452,15 +524,15 @@ app.post('/api/driver/arrive-station', authMiddleware, roleMiddleware(['driver']
     // Update current location to match the station coordinates
     if (station) {
       await dbRun(
-        'UPDATE trips SET current_latitude = ?, current_longitude = ? WHERE id = ?',
-        [station.latitude, station.longitude, trip_id]
+        'UPDATE trips SET current_latitude = ?, current_longitude = ? WHERE id = ? AND tenant_id = ?',
+        [station.latitude, station.longitude, trip_id, req.user.tenant_id]
       );
     }
 
-    // Broadcast update
+    // Broadcast update, isolated by tenant/trip
     io.to(`trip_${trip_id}`).emit('station_arrived', { trip_id, station_id, station_name: station ? station.name : '', sequence_order: station ? station.sequence_order : 0, actual_arrival_time: time });
-    io.emit('admin_location_update', { trip_id, current_latitude: station.latitude, current_longitude: station.longitude });
-    io.emit('admin_station_arrived', { trip_id, station_id, actual_arrival_time: time });
+    io.to(`tenant_admin_${req.user.tenant_id}`).emit('admin_location_update', { trip_id, current_latitude: station.latitude, current_longitude: station.longitude });
+    io.to(`tenant_admin_${req.user.tenant_id}`).emit('admin_station_arrived', { trip_id, station_id, actual_arrival_time: time });
 
     res.json({ success: true, actual_arrival_time: time });
   } catch (error) {
@@ -471,15 +543,21 @@ app.post('/api/driver/arrive-station', authMiddleware, roleMiddleware(['driver']
 app.post('/api/driver/end-trip', authMiddleware, roleMiddleware(['driver']), async (req, res) => {
   const { trip_id } = req.body;
   try {
+    // Verify trip ownership
+    const trip = await dbGet('SELECT tenant_id FROM trips WHERE id = ? AND driver_id = ? AND tenant_id = ?', [trip_id, req.user.id, req.user.tenant_id]);
+    if (!trip) {
+      return res.status(403).json({ error: 'غير مصرح لك بإنهاء هذه الرحلة (Unauthorized)' });
+    }
+
     const endTime = new Date().toISOString();
     await dbRun(
-      "UPDATE trips SET status = 'completed', end_time = ? WHERE id = ? AND driver_id = ?",
-      [endTime, trip_id, req.user.id]
+      "UPDATE trips SET status = 'completed', end_time = ? WHERE id = ? AND driver_id = ? AND tenant_id = ?",
+      [endTime, trip_id, req.user.id, req.user.tenant_id]
     );
 
-    // Broadcast end
+    // Broadcast end, isolated by tenant
     io.to(`trip_${trip_id}`).emit('trip_completed', { trip_id, end_time: endTime });
-    io.emit('admin_trip_completed', { trip_id, end_time: endTime });
+    io.to(`tenant_admin_${req.user.tenant_id}`).emit('admin_trip_completed', { trip_id, end_time: endTime });
 
     res.json({ success: true, status: 'completed', end_time: endTime });
   } catch (error) {
@@ -490,16 +568,23 @@ app.post('/api/driver/end-trip', authMiddleware, roleMiddleware(['driver']), asy
 app.post('/api/driver/delay-response', authMiddleware, roleMiddleware(['driver']), async (req, res) => {
   const { alert_id, response } = req.body; // response: 'waiting' or 'rejected'
   try {
-    const alert = await dbGet('SELECT * FROM delay_alerts WHERE id = ?', [alert_id]);
+    // Verify alert belongs to driver's tenant trip
+    const alert = await dbGet(`
+      SELECT d.*, t.tenant_id 
+      FROM delay_alerts d 
+      JOIN trips t ON d.trip_id = t.id 
+      WHERE d.id = ? AND t.driver_id = ? AND t.tenant_id = ?
+    `, [alert_id, req.user.id, req.user.tenant_id]);
+
     if (!alert) {
-      return res.status(404).json({ error: 'طلب التنبيه غير موجود (Alert not found)' });
+      return res.status(404).json({ error: 'طلب التنبيه غير موجود أو غير تابع لك (Alert not found or unauthorized)' });
     }
 
     await dbRun('UPDATE delay_alerts SET driver_response = ? WHERE id = ?', [response, alert_id]);
 
-    // Broadcast reply
+    // Broadcast reply, isolated by tenant
     io.to(`trip_${alert.trip_id}`).emit('delay_alert_replied', { alert_id, response, passenger_id: alert.passenger_id });
-    io.emit('admin_delay_alert_replied', { alert_id, response });
+    io.to(`tenant_admin_${alert.tenant_id}`).emit('admin_delay_alert_replied', { alert_id, response });
 
     res.json({ success: true });
   } catch (error) {
@@ -513,15 +598,15 @@ app.post('/api/driver/delay-response', authMiddleware, roleMiddleware(['driver']
 // Get all passengers with their registrations
 app.get('/api/admin/passengers', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    const passengers = await dbAll("SELECT id, name, email, phone FROM users WHERE role = 'passenger'");
+    const passengers = await dbAll("SELECT id, name, email, phone FROM users WHERE tenant_id = ? AND role = 'passenger'", [req.user.tenant_id]);
     for (let p of passengers) {
       p.subscriptions = await dbAll(`
         SELECT r.id as reg_id, r.line_id, r.station_id, l.name as line_name, s.name as station_name 
         FROM passenger_registrations r 
         JOIN lines l ON r.line_id = l.id 
         JOIN stations s ON r.station_id = s.id 
-        WHERE r.passenger_id = ?
-      `, [p.id]);
+        WHERE r.passenger_id = ? AND l.tenant_id = ?
+      `, [p.id, req.user.tenant_id]);
     }
     res.json(passengers);
   } catch (error) {
@@ -538,8 +623,8 @@ app.post('/api/admin/passengers', authMiddleware, roleMiddleware(['admin']), asy
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const result = await dbRun(
-      "INSERT INTO users (name, email, phone, password, role) VALUES (?, ?, ?, ?, 'passenger')",
-      [name, email, phone, hashedPassword]
+      "INSERT INTO users (tenant_id, name, email, phone, password, role) VALUES (?, ?, ?, ?, ?, 'passenger')",
+      [req.user.tenant_id, name, email, phone, hashedPassword]
     );
     res.json({ id: result.lastID, name, email, phone, role: 'passenger', subscriptions: [] });
   } catch (error) {
@@ -551,16 +636,22 @@ app.post('/api/admin/passengers', authMiddleware, roleMiddleware(['admin']), asy
 app.put('/api/admin/passengers/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   const { name, email, phone, password } = req.body;
   try {
+    // Verify passenger belongs to same tenant
+    const existingPassenger = await dbGet("SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role = 'passenger'", [req.params.id, req.user.tenant_id]);
+    if (!existingPassenger) {
+      return res.status(404).json({ error: 'الراكب غير موجود في هذه المؤسسة' });
+    }
+
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
       await dbRun(
-        "UPDATE users SET name = ?, email = ?, phone = ?, password = ? WHERE id = ? AND role = 'passenger'",
-        [name, email, phone, hashedPassword, req.params.id]
+        "UPDATE users SET name = ?, email = ?, phone = ?, password = ? WHERE id = ? AND tenant_id = ? AND role = 'passenger'",
+        [name, email, phone, hashedPassword, req.params.id, req.user.tenant_id]
       );
     } else {
       await dbRun(
-        "UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ? AND role = 'passenger'",
-        [name, email, phone, req.params.id]
+        "UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ? AND tenant_id = ? AND role = 'passenger'",
+        [name, email, phone, req.params.id, req.user.tenant_id]
       );
     }
     res.json({ success: true });
@@ -572,7 +663,11 @@ app.put('/api/admin/passengers/:id', authMiddleware, roleMiddleware(['admin']), 
 // Delete passenger
 app.delete('/api/admin/passengers/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    await dbRun("DELETE FROM users WHERE id = ? AND role = 'passenger'", [req.params.id]);
+    const existingPassenger = await dbGet("SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role = 'passenger'", [req.params.id, req.user.tenant_id]);
+    if (!existingPassenger) {
+      return res.status(404).json({ error: 'الراكب غير موجود في هذه المؤسسة' });
+    }
+    await dbRun("DELETE FROM users WHERE id = ? AND tenant_id = ? AND role = 'passenger'", [req.params.id, req.user.tenant_id]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -587,6 +682,18 @@ app.post('/api/admin/passengers/:id/subscriptions', authMiddleware, roleMiddlewa
     return res.status(400).json({ error: 'الرجاء تحديد الخط والمحطة' });
   }
   try {
+    // Verify passenger belongs to tenant
+    const existingPassenger = await dbGet("SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role = 'passenger'", [passengerId, req.user.tenant_id]);
+    if (!existingPassenger) {
+      return res.status(404).json({ error: 'الراكب غير موجود في هذه المؤسسة' });
+    }
+
+    // Verify line belongs to tenant
+    const line = await dbGet("SELECT id FROM lines WHERE id = ? AND tenant_id = ?", [line_id, req.user.tenant_id]);
+    if (!line) {
+      return res.status(404).json({ error: 'الخط غير موجود في هذه المؤسسة' });
+    }
+
     const result = await dbRun(
       'INSERT INTO passenger_registrations (passenger_id, line_id, station_id) VALUES (?, ?, ?)',
       [passengerId, line_id, station_id]
@@ -598,8 +705,8 @@ app.post('/api/admin/passengers/:id/subscriptions', authMiddleware, roleMiddlewa
       FROM passenger_registrations r 
       JOIN lines l ON r.line_id = l.id 
       JOIN stations s ON r.station_id = s.id 
-      WHERE r.id = ?
-    `, [result.lastID]);
+      WHERE r.id = ? AND l.tenant_id = ?
+    `, [result.lastID, req.user.tenant_id]);
 
     res.json(sub);
   } catch (error) {
@@ -610,6 +717,17 @@ app.post('/api/admin/passengers/:id/subscriptions', authMiddleware, roleMiddlewa
 // Delete subscription for passenger
 app.delete('/api/admin/passengers/subscriptions/:sub_id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
+    // Verify subscription belongs to passenger/line in this tenant
+    const sub = await dbGet(`
+      SELECT r.id FROM passenger_registrations r
+      JOIN lines l ON r.line_id = l.id
+      WHERE r.id = ? AND l.tenant_id = ?
+    `, [req.params.sub_id, req.user.tenant_id]);
+
+    if (!sub) {
+      return res.status(404).json({ error: 'الاشتراك غير موجود في هذه المؤسسة' });
+    }
+
     await dbRun('DELETE FROM passenger_registrations WHERE id = ?', [req.params.sub_id]);
     res.json({ success: true });
   } catch (error) {
@@ -622,10 +740,14 @@ app.delete('/api/admin/passengers/subscriptions/:sub_id', authMiddleware, roleMi
 
 app.get('/api/passenger/registration', authMiddleware, roleMiddleware(['passenger']), async (req, res) => {
   try {
-    const registrations = await dbAll(
-      'SELECT r.*, l.name as line_name, s.name as station_name FROM passenger_registrations r JOIN lines l ON r.line_id = l.id JOIN stations s ON r.station_id = s.id WHERE r.passenger_id = ?',
-      [req.user.id]
-    );
+    // Scoped to passenger's tenant
+    const registrations = await dbAll(`
+      SELECT r.*, l.name as line_name, s.name as station_name 
+      FROM passenger_registrations r 
+      JOIN lines l ON r.line_id = l.id 
+      JOIN stations s ON r.station_id = s.id 
+      WHERE r.passenger_id = ? AND l.tenant_id = ?
+    `, [req.user.id, req.user.tenant_id]);
     res.json(registrations);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -639,6 +761,12 @@ app.post('/api/passenger/registration', authMiddleware, roleMiddleware(['passeng
   }
 
   try {
+    // Verify line belongs to passenger's tenant
+    const line = await dbGet('SELECT id FROM lines WHERE id = ? AND tenant_id = ?', [line_id, req.user.tenant_id]);
+    if (!line) {
+      return res.status(403).json({ error: 'غير مصرح بالاشتراك في خط لجهة أخرى' });
+    }
+
     // Try updating first, if not exists insert
     const existing = await dbGet('SELECT id FROM passenger_registrations WHERE passenger_id = ? AND line_id = ?', [req.user.id, line_id]);
     if (existing) {
@@ -650,10 +778,13 @@ app.post('/api/passenger/registration', authMiddleware, roleMiddleware(['passeng
       );
     }
 
-    const registrations = await dbAll(
-      'SELECT r.*, l.name as line_name, s.name as station_name FROM passenger_registrations r JOIN lines l ON r.line_id = l.id JOIN stations s ON r.station_id = s.id WHERE r.passenger_id = ?',
-      [req.user.id]
-    );
+    const registrations = await dbAll(`
+      SELECT r.*, l.name as line_name, s.name as station_name 
+      FROM passenger_registrations r 
+      JOIN lines l ON r.line_id = l.id 
+      JOIN stations s ON r.station_id = s.id 
+      WHERE r.passenger_id = ? AND l.tenant_id = ?
+    `, [req.user.id, req.user.tenant_id]);
     res.json(registrations);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -664,14 +795,20 @@ app.post('/api/passenger/registration', authMiddleware, roleMiddleware(['passeng
 app.get('/api/passenger/active-trip/:line_id', authMiddleware, async (req, res) => {
   const lineId = req.params.line_id;
   try {
+    // Verify line is in passenger's tenant
+    const line = await dbGet('SELECT id FROM lines WHERE id = ? AND tenant_id = ?', [lineId, req.user.tenant_id]);
+    if (!line) {
+      return res.status(403).json({ error: 'غير مصرح بالوصول لبيانات هذا الخط (Unauthorized)' });
+    }
+
     const trip = await dbGet(`
       SELECT t.*, u.name as driver_name, u.phone as driver_phone, b.bus_number, b.plate_number
       FROM trips t
       JOIN users u ON t.driver_id = u.id
       JOIN buses b ON t.bus_id = b.id
-      WHERE t.line_id = ? AND t.status = 'active'
+      WHERE t.line_id = ? AND t.tenant_id = ? AND t.status = 'active'
       LIMIT 1
-    `, [lineId]);
+    `, [lineId, req.user.tenant_id]);
 
     if (!trip) {
       return res.json(null);
@@ -701,6 +838,12 @@ app.post('/api/passenger/delay-alert', authMiddleware, roleMiddleware(['passenge
   }
 
   try {
+    // Verify trip belongs to tenant
+    const trip = await dbGet('SELECT tenant_id FROM trips WHERE id = ? AND tenant_id = ?', [trip_id, req.user.tenant_id]);
+    if (!trip) {
+      return res.status(403).json({ error: 'غير مصرح بالوصول لهذه الرحلة (Unauthorized)' });
+    }
+
     // Anti-Spam: Rate limiting of 1 delay alert per passenger per trip
     const existing = await dbGet('SELECT id FROM delay_alerts WHERE trip_id = ? AND passenger_id = ?', [trip_id, req.user.id]);
     if (existing) {
@@ -728,11 +871,96 @@ app.post('/api/passenger/delay-alert', authMiddleware, roleMiddleware(['passenge
       created_at: time
     };
 
-    // Broadcast to Driver & Admins
+    // Broadcast to Driver & Admins, isolated by tenant
     io.to(`trip_${trip_id}`).emit('delay_alert_received', broadcastData);
-    io.emit('admin_delay_alert_received', broadcastData);
+    io.to(`tenant_admin_${req.user.tenant_id}`).emit('admin_delay_alert_received', broadcastData);
 
     res.json(broadcastData);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+// --- SUPER ADMIN ENDPOINTS ---
+
+app.get('/api/super/stats', authMiddleware, roleMiddleware(['super_admin']), async (req, res) => {
+  try {
+    const tenants = await dbGet('SELECT COUNT(*) as count FROM tenants');
+    const users = await dbGet('SELECT COUNT(*) as count FROM users');
+    const buses = await dbGet('SELECT COUNT(*) as count FROM buses');
+    const activeTrips = await dbGet("SELECT COUNT(*) as count FROM trips WHERE status = 'active'");
+    res.json({
+      totalTenants: tenants.count,
+      totalUsers: users.count,
+      totalBuses: buses.count,
+      activeTrips: activeTrips.count
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/super/tenants', authMiddleware, roleMiddleware(['super_admin']), async (req, res) => {
+  try {
+    const tenants = await dbAll('SELECT * FROM tenants ORDER BY id DESC');
+    for (let tenant of tenants) {
+      const userCount = await dbGet('SELECT COUNT(*) as count FROM users WHERE tenant_id = ?', [tenant.id]);
+      const busCount = await dbGet('SELECT COUNT(*) as count FROM buses WHERE tenant_id = ?', [tenant.id]);
+      const activeTripCount = await dbGet("SELECT COUNT(*) as count FROM trips WHERE tenant_id = ? AND status = 'active'", [tenant.id]);
+      
+      const primaryAdmin = await dbGet("SELECT id, name, email FROM users WHERE tenant_id = ? AND role = 'admin' LIMIT 1", [tenant.id]);
+      
+      tenant.stats = {
+        users: userCount.count,
+        buses: busCount.count,
+        activeTrips: activeTripCount.count
+      };
+      tenant.admin = primaryAdmin || { name: 'غير محدد', email: 'غير محدد' };
+    }
+    res.json(tenants);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/super/tenants', authMiddleware, roleMiddleware(['super_admin']), async (req, res) => {
+  const { name, slug, adminName, adminEmail, adminPassword } = req.body;
+  if (!name || !slug || !adminName || !adminEmail || !adminPassword) {
+    return res.status(400).json({ error: 'الرجاء ملء جميع الحقول المطلوبة (Missing parameters)' });
+  }
+  try {
+    await dbRun('BEGIN TRANSACTION;');
+    
+    const timeNow = new Date().toISOString();
+    const tenantResult = await dbRun(
+      "INSERT INTO tenants (name, slug, status, created_at) VALUES (?, ?, 'active', ?)",
+      [name, slug, timeNow]
+    );
+    const tenantId = tenantResult.lastID;
+    
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    await dbRun(
+      "INSERT INTO users (tenant_id, name, email, phone, password, role) VALUES (?, ?, ?, ?, ?, 'admin')",
+      [tenantId, adminName, adminEmail, '', hashedPassword]
+    );
+    
+    await dbRun('COMMIT;');
+    res.json({ success: true, tenantId });
+  } catch (error) {
+    await dbRun('ROLLBACK;');
+    res.status(400).json({ error: 'فشل إنشاء المؤسسة. قد يكون معرف الرابط أو البريد الإلكتروني مسجلاً بالفعل (Slug or email already exists)' });
+  }
+});
+
+app.put('/api/super/tenants/:id/status', authMiddleware, roleMiddleware(['super_admin']), async (req, res) => {
+  const { status } = req.body;
+  if (!['active', 'suspended'].includes(status)) {
+    return res.status(400).json({ error: 'الحالة المدخلة غير صالحة' });
+  }
+  try {
+    await dbRun('UPDATE tenants SET status = ? WHERE id = ?', [status, req.params.id]);
+    res.json({ success: true, status });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -754,10 +982,14 @@ io.on('connection', (socket) => {
       user = decoded;
       socket.emit('authenticated', { name: user.name, role: user.role });
 
-      // Join standard rooms based on role
+      // Join standard rooms based on role and tenant
       if (user.role === 'admin') {
-        socket.join('admin');
-        console.log(`Admin joined socket room: ${user.name}`);
+        socket.join(`tenant_admin_${user.tenant_id}`);
+        console.log(`Admin joined socket room: tenant_admin_${user.tenant_id}`);
+      }
+      if (user.tenant_id) {
+        socket.join(`tenant_${user.tenant_id}`);
+        console.log(`User joined socket room: tenant_${user.tenant_id}`);
       }
     });
   });
@@ -782,7 +1014,7 @@ io.on('connection', (socket) => {
     }
     
     // Secure Location Check: verify if this trip belongs to this driver
-    dbGet('SELECT driver_id FROM trips WHERE id = ?', [data.tripId], (err, row) => {
+    dbGet('SELECT driver_id, tenant_id FROM trips WHERE id = ?', [data.tripId], (err, row) => {
       if (err || !row || row.driver_id !== user.id) {
         console.warn(`Unauthorized location post attempt by user ${user.id} for trip ${data.tripId}`);
         return;
@@ -802,8 +1034,8 @@ io.on('connection', (socket) => {
         longitude: data.longitude
       });
 
-      // Broadcast to admins
-      io.to('admin').emit('admin_location_update', {
+      // Broadcast to admins of the specific tenant
+      io.to(`tenant_admin_${row.tenant_id}`).emit('admin_location_update', {
         tripId: data.tripId,
         latitude: data.latitude,
         longitude: data.longitude

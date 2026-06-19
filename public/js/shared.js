@@ -110,7 +110,8 @@ function checkAuth(allowedRoles = []) {
   const user = JSON.parse(userStr);
   if (allowedRoles.length && !allowedRoles.includes(user.role)) {
     // Send user to their appropriate dashboard
-    if (user.role === 'admin') window.location.href = '/admin.html';
+    if (user.role === 'super_admin') window.location.href = '/super.html';
+    else if (user.role === 'admin') window.location.href = '/admin.html';
     else if (user.role === 'driver') window.location.href = '/driver.html';
     else window.location.href = '/passenger.html';
     return null;
@@ -127,6 +128,7 @@ function setupHeader(user) {
   const initial = user.name ? user.name.charAt(0) : 'U';
   
   let arabicRole = 'مستخدم';
+  if (user.role === 'super_admin') arabicRole = 'مسؤول المنصة (Super Admin)';
   if (user.role === 'admin') arabicRole = 'مسؤول النظام';
   if (user.role === 'driver') arabicRole = 'سائق';
   if (user.role === 'passenger') arabicRole = 'راكب';

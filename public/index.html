@@ -115,27 +115,36 @@
     <div class="glass-panel quick-access-panel">
       <h3 style="font-size: 16px; margin-bottom: 15px;"><i class="fas fa-database"></i> الحسابات الافتراضية المعدة مسبقاً (Default Seeded Users)</h3>
       <div style="display: flex; flex-wrap: wrap; gap: 15px; direction: rtl; justify-content: flex-start;">
+        <div class="account-badge" style="border-color: rgba(255, 215, 0, 0.3); background: rgba(255, 215, 0, 0.05);">
+          <i class="fas fa-crown" style="color: #ffd700;"></i>
+          <span><b>مسؤول المنصة (Super):</b> super@bustrack.com (الباسورد: super123)</span>
+        </div>
         <div class="account-badge">
           <i class="fas fa-user-shield" style="color: var(--primary);"></i>
-          <span><b>المسؤول:</b> admin@bustrack.com (الباسورد: admin123)</span>
+          <span><b>المسؤول (Cairo Uni):</b> admin@bustrack.com (الباسورد: admin123)</span>
+        </div>
+        <div class="account-badge">
+          <i class="fas fa-user-shield" style="color: var(--primary);"></i>
+          <span><b>المسؤول (Orange Co):</b> admin@orange.com (الباسورد: admin123)</span>
         </div>
         <div class="account-badge">
           <i class="fas fa-steering-wheel" style="color: var(--accent-teal);"></i>
-          <span><b>السائق 1:</b> driver1@bustrack.com (الباسورد: driver123)</span>
+          <span><b>السائق (Cairo Uni):</b> driver1@bustrack.com (الباسورد: driver123)</span>
         </div>
         <div class="account-badge">
           <i class="fas fa-steering-wheel" style="color: var(--accent-teal);"></i>
-          <span><b>السائق 2:</b> driver2@bustrack.com (الباسورد: driver123)</span>
+          <span><b>السائق (Orange Co):</b> driver2@bustrack.com (الباسورد: driver123)</span>
         </div>
         <div class="account-badge">
           <i class="fas fa-users" style="color: var(--accent-amber);"></i>
-          <span><b>الراكب 1:</b> passenger1@bustrack.com (مشترك في خطين!)</span>
+          <span><b>الراكب 1 (Cairo Uni):</b> passenger1@bustrack.com</span>
         </div>
       </div>
       <div style="margin-top: 15px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
         <i class="fas fa-info-circle" style="color: var(--primary);"></i>
         <b>طريقة التجربة السريعة:</b> سجل دخول في شاشة <b>المسؤول (Admin)</b> أولاً، ثم سجل دخول في شاشة <b>السائق (Driver)</b> وابدأ الرحلة، ثم اضغط <b>"بدء محاكاة GPS"</b> لدى السائق وتابع حركة الحافلة والتنبيهات بالزمن الفعلي على شاشات الأدمن والراكب!
-        <br>💡 <b>تجربة الخطوط المتعددة للركاب:</b> الراكب 1 مشترك افتراضياً في "خط الجامعة" و"خط الشروق". جرب بدء رحلة على خط الشروق بينما الراكب يتصفح خط الجامعة، وستشاهد شريط تنبيه فوري يظهر للراكب لإشعاره بوجود رحلة نشطة على خطه الآخر ودعوته لتتبعها!
+        <br>💡 <b>لوحة تحكم المنصة العامة:</b> يمكنك الانتقال إلى <a href="/super.html" target="_blank" style="color: #ffd700; text-decoration: underline; font-weight: bold;"><i class="fas fa-external-link-alt"></i> لوحة تحكم السوبر أدمن (Super Admin)</a> لإضافة مؤسسات (Tenants) جديدة أو تجميد وتفعيل المؤسسات الحالية.
+        <br>💡 <b>عزل البيانات:</b> جرب تسجيل الدخول بأدمن "جامعة القاهرة" (admin@bustrack.com) وبأدمن "شركة أورانج" (admin@orange.com)، وتأكد أن بيانات الحافلات والسائقين والخطوط معزولة تماماً ولا تظهر بيانات مؤسسة لدى الأخرى!
       </div>
     </div>
 

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BusTrack SaaS - لوحة التحكم العامة (Super Admin)</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .super-title {
+      font-size: 28px;
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .super-title i {
+      color: #ffd700;
+      filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.4));
+    }
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 30px;
+      margin-top: 25px;
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .tenant-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      gap: 6px;
+    }
+    .tenant-badge.active {
+      background: var(--accent-teal-glow);
+      color: var(--accent-teal);
+      border: 1px solid rgba(20, 184, 166, 0.3);
+    }
+    .tenant-badge.suspended {
+      background: var(--accent-rose-glow);
+      color: var(--accent-rose);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+    .quick-stat-badge {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--panel-border);
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 5px;
+    }
+    .quick-stat-badge i {
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <!-- Filled dynamically by shared.js -->
+  </header>
+
+  <main class="main-content">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px;">
+      <div>
+        <h1 class="super-title"><i class="fas fa-crown"></i> إدارة منصة BusTrack SaaS</h1>
+        <p style="color: var(--text-secondary); font-size: 15px;">لوحة تحكم مسؤول المنصة العام لإدارة المؤسسات ومراقبة الأداء العام</p>
+      </div>
+      <button class="btn btn-primary" onclick="openAddTenantModal()">
+        <i class="fas fa-plus"></i> إضافة مؤسسة جديدة
+      </button>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="dashboard-grid">
+      <div class="glass-panel stat-card">
+        <div class="stat-icon amber">
+          <i class="fas fa-city"></i>
+        </div>
+        <div class="stat-info">
+          <h3 id="stat-tenants">0</h3>
+          <p>إجمالي المؤسسات</p>
+        </div>
+      </div>
+      <div class="glass-panel stat-card">
+        <div class="stat-icon primary">
+          <i class="fas fa-users"></i>
+        </div>
+        <div class="stat-info">
+          <h3 id="stat-users">0</h3>
+          <p>إجمالي المستخدمين</p>
+        </div>
+      </div>
+      <div class="glass-panel stat-card">
+        <div class="stat-icon teal">
+          <i class="fas fa-bus"></i>
+        </div>
+        <div class="stat-info">
+          <h3 id="stat-buses">0</h3>
+          <p>الحافلات المسجلة</p>
+        </div>
+      </div>
+      <div class="glass-panel stat-card">
+        <div class="stat-icon rose">
+          <i class="fas fa-route"></i>
+        </div>
+        <div class="stat-info">
+          <h3 id="stat-active-trips">0</h3>
+          <p>الرحلات النشطة حالياً</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tenants Management Section -->
+    <div class="main-grid">
+      <div class="glass-panel">
+        <div class="panel-header">
+          <h2>المؤسسات المشتركة (Tenants)</h2>
+          <div style="color: var(--text-secondary); font-size: 14px;" id="tenants-count">جاري التحميل...</div>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>المؤسسة</th>
+                <th>رابط الوصول (Slug)</th>
+                <th>حساب المسؤول (Owner Admin)</th>
+                <th>تاريخ الاشتراك</th>
+                <th>إحصائيات الجهة</th>
+                <th>الحالة</th>
+                <th style="text-align: left;">العمليات</th>
+              </tr>
+            </thead>
+            <tbody id="tenantsTableBody">
+              <!-- Filled dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Add Tenant Modal -->
+  <div class="modal-overlay" id="addTenantModal">
+    <div class="glass-panel modal-content" style="max-width: 600px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3>إضافة مؤسسة جديدة للمنصة</h3>
+        <button onclick="closeAddTenantModal()" style="background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-size: 18px;">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
+      <form id="addTenantForm">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+          <div class="form-group">
+            <label class="form-label" for="tenantName">اسم المؤسسة</label>
+            <input type="text" id="tenantName" class="form-control" placeholder="مثال: مدرسة المستقبل" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="tenantSlug">رابط المؤسسة الفرعي (Slug)</label>
+            <input type="text" id="tenantSlug" class="form-control" placeholder="مثال: future-school" pattern="^[a-z0-9\-]+$" title="يجب استخدام حروف صغيرة وأرقام وعلامة ناقص فقط" required>
+          </div>
+        </div>
+
+        <h4 style="margin: 15px 0 10px 0; border-bottom: 1px solid var(--panel-border); padding-bottom: 5px; color: var(--accent-teal);">
+          <i class="fas fa-user-cog"></i> بيانات حساب المسؤول الأول (Admin Owner)
+        </h4>
+
+        <div class="form-group">
+          <label class="form-label" for="adminName">اسم المسؤول</label>
+          <input type="text" id="adminName" class="form-control" placeholder="مثال: أ. محمد محمود" required>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+          <div class="form-group">
+            <label class="form-label" for="adminEmail">البريد الإلكتروني للمسؤول</label>
+            <input type="email" id="adminEmail" class="form-control" placeholder="admin@future.com" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="adminPassword">كلمة المرور للمسؤول</label>
+            <input type="password" id="adminPassword" class="form-control" placeholder="••••••••" minlength="6" required>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px;">
+          <button type="button" class="btn btn-secondary" onclick="closeAddTenantModal()">إلغاء</button>
+          <button type="submit" class="btn btn-primary">إنشاء وتفعيل</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/shared.js"></script>
+  <script>
+    let currentUser = null;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      currentUser = checkAuth(['super_admin']);
+      if (!currentUser) return;
+
+      setupHeader(currentUser);
+      await loadStats();
+      await loadTenants();
+    });
+
+    async function loadStats() {
+      try {
+        const stats = await apiCall('/api/super/stats');
+        document.getElementById('stat-tenants').innerText = stats.totalTenants;
+        document.getElementById('stat-users').innerText = stats.totalUsers;
+        document.getElementById('stat-buses').innerText = stats.totalBuses;
+        document.getElementById('stat-active-trips').innerText = stats.activeTrips;
+      } catch (err) {
+        showToast('فشل في تحميل الإحصائيات العامة', 'danger');
+      }
+    }
+
+    async function loadTenants() {
+      const tbody = document.getElementById('tenantsTableBody');
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 30px;"><i class="fas fa-spinner fa-spin"></i> جاري تحميل المؤسسات...</td></tr>`;
+
+      try {
+        const tenants = await apiCall('/api/super/tenants');
+        document.getElementById('tenants-count').innerText = `عدد المؤسسات: ${tenants.length}`;
+        
+        if (tenants.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary); padding: 30px;">لا توجد مؤسسات مسجلة بعد</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = '';
+        tenants.forEach(tenant => {
+          const dateStr = tenant.created_at ? new Date(tenant.created_at).toLocaleDateString('ar-EG') : 'غير محدد';
+          const isSuspended = tenant.status === 'suspended';
+          const statusBadgeClass = isSuspended ? 'suspended' : 'active';
+          const statusText = isSuspended ? 'موقوف مؤقتاً' : 'نشط';
+          const statusIcon = isSuspended ? 'fa-pause-circle' : 'fa-check-circle';
+          
+          const actionBtn = isSuspended
+            ? `<button class="btn btn-teal btn-sm" onclick="toggleTenantStatus(${tenant.id}, 'active')"><i class="fas fa-play"></i> تفعيل الاشتراك</button>`
+            : `<button class="btn btn-rose btn-sm" onclick="toggleTenantStatus(${tenant.id}, 'suspended')"><i class="fas fa-pause"></i> إيقاف مؤقت</button>`;
+
+          tbody.innerHTML += `
+            <tr>
+              <td>
+                <div style="font-weight: 600; color: #ffffff;">${tenant.name}</div>
+              </td>
+              <td><code style="background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; color: var(--accent-teal); font-size: 13px;">${tenant.slug}</code></td>
+              <td>
+                <div style="font-size: 14px;">${tenant.admin.name}</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">${tenant.admin.email}</div>
+              </td>
+              <td style="color: var(--text-secondary); font-size: 14px;">${dateStr}</td>
+              <td>
+                <span class="quick-stat-badge" title="المستخدمين"><i class="fas fa-users"></i> ${tenant.stats.users}</span>
+                <span class="quick-stat-badge" title="الحافلات"><i class="fas fa-bus"></i> ${tenant.stats.buses}</span>
+                <span class="quick-stat-badge" title="الرحلات النشطة"><i class="fas fa-route"></i> ${tenant.stats.activeTrips}</span>
+              </td>
+              <td>
+                <span class="tenant-badge ${statusBadgeClass}">
+                  <i class="fas ${statusIcon}"></i> ${statusText}
+                </span>
+              </td>
+              <td style="text-align: left;">
+                ${actionBtn}
+              </td>
+            </tr>
+          `;
+        });
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--accent-rose); padding: 30px;"><i class="fas fa-exclamation-triangle"></i> فشل في تحميل البيانات</td></tr>`;
+      }
+    }
+
+    async function toggleTenantStatus(tenantId, newStatus) {
+      const confirmMsg = newStatus === 'suspended'
+        ? 'هل أنت متأكد من إيقاف اشتراك هذه المؤسسة؟ سيؤدي ذلك لحظر جميع مستخدميها فوراً من الوصول للنظام.'
+        : 'هل تريد إعادة تفعيل الاشتراك لهذه المؤسسة؟';
+
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        await apiCall(`/api/super/tenants/${tenantId}/status`, 'PUT', { status: newStatus });
+        showToast('تم تحديث حالة المؤسسة بنجاح!', 'success');
+        await loadStats();
+        await loadTenants();
+      } catch (err) {
+        showToast(err.message || 'فشل في تحديث الحالة', 'danger');
+      }
+    }
+
+    function openAddTenantModal() {
+      document.getElementById('addTenantForm').reset();
+      document.getElementById('addTenantModal').classList.add('active');
+    }
+
+    function closeAddTenantModal() {
+      document.getElementById('addTenantModal').classList.remove('active');
+    }
+
+    document.getElementById('addTenantForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('tenantName').value.trim();
+      const slug = document.getElementById('tenantSlug').value.trim();
+      const adminName = document.getElementById('adminName').value.trim();
+      const adminEmail = document.getElementById('adminEmail').value.trim();
+      const adminPassword = document.getElementById('adminPassword').value;
+
+      try {
+        await apiCall('/api/super/tenants', 'POST', {
+          name,
+          slug,
+          adminName,
+          adminEmail,
+          adminPassword
+        });
+
+        showToast('تم إنشاء المؤسسة وحساب المسؤول بنجاح!', 'success');
+        closeAddTenantModal();
+        await loadStats();
+        await loadTenants();
+      } catch (err) {
+        showToast(err.message || 'فشل في إضافة المؤسسة', 'danger');
+      }
+    });
+  </script>
+</body>
+</html>
