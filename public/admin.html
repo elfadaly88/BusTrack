@@ -50,12 +50,13 @@
     
     <!-- Tab Controls -->
     <div class="tabs-nav">
-      <button class="tab-btn active" onclick="switchTab('live-dashboard')"><i class="fas fa-map-marked-alt"></i> التتبع المباشر</button>
+      <button class="tab-btn" onclick="switchTab('live-dashboard')"><i class="fas fa-map-marked-alt"></i> التتبع المباشر</button>
       <button class="tab-btn" onclick="switchTab('trips-dispatch')"><i class="fas fa-route"></i> الرحلات والجدولة</button>
       <button class="tab-btn" onclick="switchTab('route-designer')"><i class="fas fa-drafting-compass"></i> مصمم الخطوط</button>
       <button class="tab-btn" onclick="switchTab('buses-tab')"><i class="fas fa-bus"></i> الحافلات</button>
       <button class="tab-btn" onclick="switchTab('drivers-tab')"><i class="fas fa-user-tie"></i> السائقين</button>
       <button class="tab-btn" onclick="switchTab('passengers-tab')"><i class="fas fa-users"></i> الركاب والاشتراكات</button>
+      <button class="tab-btn" id="ratingsTabBtn" onclick="switchTab('ratings-tab'); loadRatingsData();"><i class="fas fa-star"></i> التقييمات</button>
     </div>
 
     <!-- TAB 1: Live Dashboard -->
@@ -445,6 +446,45 @@
       </form>
     </div>
   </div>
+
+  <!-- TAB 7: Ratings & Performance -->
+  <section id="ratings-tab" class="tab-content" style="display:none;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
+      <div>
+        <h2 style="font-size:20px; font-weight:700; color:white; margin-bottom:4px;"><i class="fas fa-star" style="color:#f5a623;"></i> تقييمات الرحلات وأداء السائقين</h2>
+        <p style="color:var(--text-secondary); font-size:13px;">تتبّع جودة الخدمة وأداء كل سائق من خلال تقييمات الركاب الفعلية</p>
+      </div>
+      <button class="btn btn-secondary" onclick="loadRatingsData()"><i class="fas fa-sync-alt"></i> تحديث</button>
+    </div>
+
+    <!-- Driver Performance Cards -->
+    <h3 style="font-size:16px; color:white; margin-bottom:16px;"><i class="fas fa-trophy" style="color:#f5a623;"></i> أداء السائقين</h3>
+    <div id="driver-ratings-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px; margin-bottom:32px;">
+      <p style="color:var(--text-secondary);">جاري التحميل...</p>
+    </div>
+
+    <!-- Recent Ratings Table -->
+    <h3 style="font-size:16px; color:white; margin-bottom:16px;"><i class="fas fa-history" style="color:#6366f1;"></i> آخر تقييمات الركاب</h3>
+    <div class="glass-panel" style="padding:0; overflow:hidden; border-radius:16px;">
+      <div style="overflow-x:auto;">
+        <table class="data-table" style="width:100%;">
+          <thead>
+            <tr>
+              <th>الراكب</th>
+              <th>السائق</th>
+              <th>الخط</th>
+              <th>التقييم</th>
+              <th>التعليق</th>
+              <th>التاريخ</th>
+            </tr>
+          </thead>
+          <tbody id="ratings-history-tbody">
+            <tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">جاري التحميل...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
   <script src="/js/shared.js"></script>
   <script>
@@ -1371,6 +1411,112 @@
         showToast(err.message, 'danger');
       }
     }
+
+    // ======= RATINGS TAB LOGIC =======
+    async function loadRatingsData() {
+      await Promise.all([loadDriverRatings(), loadRecentRatings()]);
+    }
+
+    async function loadDriverRatings() {
+      try {
+        const data = await apiCall('/api/admin/ratings/drivers');
+        const container = document.getElementById('driver-ratings-grid');
+        container.innerHTML = '';
+
+        if (!data.length) {
+          container.innerHTML = `<p style="color:var(--text-secondary); text-align:center; padding: 20px;">لا توجد تقييمات بعد</p>`;
+          return;
+        }
+
+        data.forEach(d => {
+          const avg = d.avg_rating || 0;
+          const stars = renderStars(avg);
+          const isPoor = avg > 0 && avg < 3;
+          const cardBorder = isPoor ? 'border: 1px solid rgba(239,68,68,0.4);' : 'border: 1px solid rgba(255,255,255,0.08);';
+          const warnBadge = isPoor ? `<span class="badge badge-danger" style="font-size:10px;"><i class="fas fa-exclamation-triangle"></i> يحتاج متابعة</span>` : '';
+
+          container.innerHTML += `
+            <div class="glass-panel" style="padding: 20px; border-radius: 16px; ${cardBorder}">
+              <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+                <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px;">🚗</div>
+                <div>
+                  <div style="font-weight:700;color:#fff;font-size:15px;">${d.driver_name}</div>
+                  <div style="font-size:12px;color:var(--text-secondary);">${d.total_ratings} تقييم إجمالي</div>
+                </div>
+                ${warnBadge}
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <span style="font-size:28px;font-weight:800;color:${avg>=4?'#10b981':avg>=3?'#f5a623':'#ef4444'}">${avg || 'N/A'}</span>
+                <div>
+                  <div style="direction:ltr;letter-spacing:2px;">${stars}</div>
+                  <div style="font-size:11px;color:var(--text-secondary);">من 5 نجوم</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <div style="flex:1;background:rgba(16,185,129,0.1);border-radius:8px;padding:8px;text-align:center;">
+                  <div style="color:#10b981;font-weight:700;font-size:16px;">${d.good_ratings || 0}</div>
+                  <div style="font-size:10px;color:var(--text-secondary);">ممتازة ⭐⭐⭐⭐</div>
+                </div>
+                <div style="flex:1;background:rgba(239,68,68,0.1);border-radius:8px;padding:8px;text-align:center;">
+                  <div style="color:#ef4444;font-weight:700;font-size:16px;">${d.poor_ratings || 0}</div>
+                  <div style="font-size:10px;color:var(--text-secondary);">ضعيفة ⭐⭐</div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+      } catch(e) { console.error(e); }
+    }
+
+    async function loadRecentRatings() {
+      try {
+        const data = await apiCall('/api/admin/ratings');
+        const tbody = document.getElementById('ratings-history-tbody');
+        tbody.innerHTML = '';
+
+        if (!data.length) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">لا توجد تقييمات مسجلة بعد</td></tr>`;
+          return;
+        }
+
+        data.forEach(r => {
+          const stars = renderStars(r.rating);
+          const dateStr = new Date(r.created_at).toLocaleDateString('ar-EG', {day:'2-digit',month:'2-digit',year:'numeric', hour:'2-digit', minute:'2-digit'});
+          const ratingColor = r.rating >= 4 ? '#10b981' : r.rating >= 3 ? '#f5a623' : '#ef4444';
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td><span style="color:white;font-weight:600;">${r.passenger_name}</span></td>
+            <td>${r.driver_name}</td>
+            <td>${r.line_name}</td>
+            <td>
+              <span style="color:${ratingColor};font-weight:700;font-size:16px;">${r.rating}</span>
+              <span style="direction:ltr;display:inline-block;margin-right:4px;">${stars}</span>
+            </td>
+            <td style="color:var(--text-secondary);font-size:12px;max-width:200px;">${r.comment || '<em>بدون تعليق</em>'}</td>
+            <td style="font-size:11px;color:var(--text-secondary);">${dateStr}</td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch(e) { console.error(e); }
+    }
+
+    function renderStars(avg) {
+      let stars = '';
+      for (let i = 1; i <= 5; i++) {
+        stars += `<span style="color:${i <= Math.round(avg) ? '#f5a623' : 'rgba(255,255,255,0.2)'};font-size:14px;">★</span>`;
+      }
+      return stars;
+    }
+
+    // Socket: low rating alert
+    socket.on('low_rating_alert', (data) => {
+      showToast(`⚠️ تقييم منخفض (${data.rating}⭐) من ${data.passenger_name} على رحلة #${data.trip_id}`, 'danger');
+      // Refresh ratings if tab is open
+      if (document.getElementById('ratings-tab').classList.contains('active')) {
+        loadRatingsData();
+      }
+    });
+    // ======= END RATINGS TAB =======
   </script>
 </body>
 </html>

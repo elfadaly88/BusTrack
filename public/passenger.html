@@ -61,6 +61,121 @@
       70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
       100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
     }
+
+    /* ====== Rating Modal Styles ====== */
+    .rating-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(8px);
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 0.3s ease;
+    }
+    .rating-modal-box {
+      background: linear-gradient(135deg, #1a1e36, #141726);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 24px;
+      padding: 32px 28px;
+      max-width: 370px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.6), 0 0 40px rgba(245,158,11,0.08);
+      animation: slideUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @keyframes slideUp {
+      from { transform: translateY(40px); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
+    .rating-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .rating-subtitle {
+      font-size: 13px;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 24px;
+    }
+    .stars-container {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      direction: ltr;
+    }
+    .star-btn {
+      background: none;
+      border: none;
+      font-size: 38px;
+      cursor: pointer;
+      color: rgba(255,255,255,0.2);
+      transition: all 0.15s ease;
+      transform: scale(1);
+    }
+    .star-btn:hover,
+    .star-btn.active {
+      color: #f5a623;
+      transform: scale(1.2);
+      text-shadow: 0 0 12px rgba(245,166,35,0.5);
+    }
+    .rating-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #f5a623;
+      min-height: 20px;
+      margin-bottom: 16px;
+      transition: all 0.2s ease;
+    }
+    .rating-comment {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      padding: 12px 15px;
+      color: white;
+      font-family: inherit;
+      font-size: 13px;
+      resize: none;
+      outline: none;
+      margin-bottom: 20px;
+      transition: border 0.2s;
+      box-sizing: border-box;
+    }
+    .rating-comment:focus {
+      border-color: rgba(245,158,11,0.5);
+    }
+    .rating-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn-rate-submit {
+      flex: 1;
+      padding: 12px;
+      background: linear-gradient(135deg, #f5a623, #e8900d);
+      border: none;
+      border-radius: 12px;
+      color: #000;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-rate-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(245,166,35,0.4); }
+    .btn-rate-skip {
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      color: rgba(255,255,255,0.6);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-rate-skip:hover { background: rgba(255,255,255,0.12); }
   </style>
 </head>
 <body>
@@ -164,6 +279,31 @@
 
     </div>
 
+  </div>
+
+  <!-- Rating Modal -->
+  <div id="ratingModal" class="rating-modal-overlay" style="display:none;">
+    <div class="rating-modal-box">
+      <div style="font-size: 48px; margin-bottom: 12px;">🚌</div>
+      <div class="rating-title">كيف كانت رحلتك؟</div>
+      <div class="rating-subtitle">مساعدتك تُحسّن تجربة الجميع — شكراً!</div>
+      
+      <div class="stars-container" id="starsRow">
+        <button class="star-btn" data-val="1" onclick="selectStar(1)">★</button>
+        <button class="star-btn" data-val="2" onclick="selectStar(2)">★</button>
+        <button class="star-btn" data-val="3" onclick="selectStar(3)">★</button>
+        <button class="star-btn" data-val="4" onclick="selectStar(4)">★</button>
+        <button class="star-btn" data-val="5" onclick="selectStar(5)">★</button>
+      </div>
+      <div class="rating-label" id="ratingLabel">اختر عدد النجوم</div>
+
+      <textarea id="ratingComment" class="rating-comment" rows="3" placeholder="تعليق اختياري... (ما الذي أعجبك أو لم يعجبك؟)"></textarea>
+
+      <div class="rating-actions">
+        <button class="btn-rate-submit" id="submitRatingBtn" onclick="submitRating()" disabled>إرسال التقييم ⭐</button>
+        <button class="btn-rate-skip" onclick="closeRatingModal()">تخطي</button>
+      </div>
+    </div>
   </div>
 
   <!-- Registration Preferences Modal -->
@@ -270,6 +410,7 @@
 
     socket.on('trip_completed', (data) => {
       if (activeTrip && data.trip_id === activeTrip.id) {
+        const completedTripId = activeTrip.id;
         logNotification(`انتهت الرحلة ووصل الباص لمحطة النهاية.`);
         showToast('وصلت الحافلة لنهاية المسار وانتهت الرحلة', 'info');
         socket.emit('leave_trip', activeTrip.id);
@@ -279,8 +420,63 @@
         busMarker = null;
         document.getElementById('active-tracker').style.display = 'none';
         document.getElementById('no-active-trip').style.display = 'block';
+        // Show rating modal after short delay
+        setTimeout(() => openRatingModal(completedTripId), 1200);
       }
     });
+
+    // ====== Rating Modal Logic ======
+    let currentRatingTripId = null;
+    let selectedRating = 0;
+    const ratingLabels = ['', 'سيء جداً 😠', 'سيء 😕', 'مقبول 😐', 'جيد 😊', 'ممتاز! 🤩'];
+
+    function openRatingModal(tripId) {
+      currentRatingTripId = tripId;
+      selectedRating = 0;
+      document.getElementById('ratingModal').style.display = 'flex';
+      document.getElementById('ratingLabel').textContent = 'اختر عدد النجوم';
+      document.getElementById('ratingComment').value = '';
+      document.getElementById('submitRatingBtn').disabled = true;
+      document.querySelectorAll('.star-btn').forEach(b => b.classList.remove('active'));
+    }
+
+    function closeRatingModal() {
+      document.getElementById('ratingModal').style.display = 'none';
+      currentRatingTripId = null;
+      selectedRating = 0;
+    }
+
+    function selectStar(val) {
+      selectedRating = val;
+      document.querySelectorAll('.star-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.val) <= val);
+      });
+      document.getElementById('ratingLabel').textContent = ratingLabels[val];
+      document.getElementById('submitRatingBtn').disabled = false;
+    }
+
+    async function submitRating() {
+      if (!selectedRating || !currentRatingTripId) return;
+      const comment = document.getElementById('ratingComment').value.trim();
+      const token = localStorage.getItem('bustrack_token');
+      try {
+        const res = await fetch('/api/passenger/rate-trip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ trip_id: currentRatingTripId, rating: selectedRating, comment })
+        });
+        if (res.ok) {
+          showToast(`شكراً على تقييمك! ${ratingLabels[selectedRating]}`, 'success');
+          closeRatingModal();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'فشل إرسال التقييم', 'danger');
+        }
+      } catch (e) {
+        showToast('خطأ في الاتصال بالخادم', 'danger');
+      }
+    }
+    // ====== End Rating Modal ======
 
     // On Load
     window.addEventListener('DOMContentLoaded', async () => {

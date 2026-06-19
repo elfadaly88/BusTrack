@@ -882,6 +882,120 @@ app.post('/api/passenger/delay-alert', authMiddleware, roleMiddleware(['passenge
 });
 
 
+// --- RATINGS ENDPOINTS ---
+
+// Passenger submits a rating for a completed trip
+app.post('/api/passenger/rate-trip', authMiddleware, roleMiddleware(['passenger']), async (req, res) => {
+  const { trip_id, rating, comment } = req.body;
+
+  if (!trip_id || !rating || rating < 1 || rating > 5) {
+    return res.status(400).json({ error: 'يرجى تحديد التقييم من 1 إلى 5 نجوم (Invalid rating value)' });
+  }
+
+  try {
+    // Verify trip is completed and belongs to passenger's tenant
+    const trip = await dbGet(
+      "SELECT t.id, t.driver_id, t.tenant_id FROM trips t WHERE t.id = ? AND t.tenant_id = ? AND t.status = 'completed'",
+      [trip_id, req.user.tenant_id]
+    );
+    if (!trip) {
+      return res.status(404).json({ error: 'الرحلة غير موجودة أو لم تنتهِ بعد (Trip not found or not completed)' });
+    }
+
+    // Check passenger was subscribed to the trip's line (optional but good security)
+    const alreadyRated = await dbGet(
+      'SELECT id FROM trip_ratings WHERE trip_id = ? AND passenger_id = ?',
+      [trip_id, req.user.id]
+    );
+    if (alreadyRated) {
+      return res.status(409).json({ error: 'لقد قيّمت هذه الرحلة بالفعل (Trip already rated)' });
+    }
+
+    const time = new Date().toISOString();
+    const result = await dbRun(
+      'INSERT INTO trip_ratings (trip_id, passenger_id, driver_id, tenant_id, rating, comment, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [trip_id, req.user.id, trip.driver_id, req.user.tenant_id, rating, comment || null, time]
+    );
+
+    // Notify admin if rating is poor (<=2)
+    if (rating <= 2) {
+      io.to(`tenant_admin_${req.user.tenant_id}`).emit('low_rating_alert', {
+        trip_id,
+        driver_id: trip.driver_id,
+        rating,
+        comment: comment || '',
+        passenger_name: req.user.name
+      });
+    }
+
+    res.json({ success: true, id: result.lastID });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check if current passenger has already rated a trip
+app.get('/api/passenger/has-rated/:trip_id', authMiddleware, roleMiddleware(['passenger']), async (req, res) => {
+  try {
+    const existing = await dbGet(
+      'SELECT id, rating FROM trip_ratings WHERE trip_id = ? AND passenger_id = ?',
+      [req.params.trip_id, req.user.id]
+    );
+    res.json({ rated: !!existing, rating: existing ? existing.rating : null });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin: Get all ratings for tenant with driver info
+app.get('/api/admin/ratings', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const ratings = await dbAll(`
+      SELECT 
+        r.id, r.trip_id, r.rating, r.comment, r.created_at,
+        u_driver.name as driver_name,
+        u_driver.id as driver_id,
+        u_passenger.name as passenger_name,
+        l.name as line_name
+      FROM trip_ratings r
+      JOIN users u_driver ON r.driver_id = u_driver.id
+      JOIN users u_passenger ON r.passenger_id = u_passenger.id
+      JOIN trips t ON r.trip_id = t.id
+      JOIN lines l ON t.line_id = l.id
+      WHERE r.tenant_id = ?
+      ORDER BY r.created_at DESC
+      LIMIT 100
+    `, [req.user.tenant_id]);
+    res.json(ratings);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin: Get rating summary per driver for tenant
+app.get('/api/admin/ratings/drivers', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const driverStats = await dbAll(`
+      SELECT 
+        u.id as driver_id,
+        u.name as driver_name,
+        COUNT(r.id) as total_ratings,
+        ROUND(AVG(r.rating), 1) as avg_rating,
+        SUM(CASE WHEN r.rating >= 4 THEN 1 ELSE 0 END) as good_ratings,
+        SUM(CASE WHEN r.rating <= 2 THEN 1 ELSE 0 END) as poor_ratings
+      FROM users u
+      LEFT JOIN trip_ratings r ON u.id = r.driver_id AND r.tenant_id = ?
+      WHERE u.tenant_id = ? AND u.role = 'driver'
+      GROUP BY u.id, u.name
+      ORDER BY avg_rating DESC
+    `, [req.user.tenant_id, req.user.tenant_id]);
+    res.json(driverStats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 // --- SUPER ADMIN ENDPOINTS ---
 
 app.get('/api/super/stats', authMiddleware, roleMiddleware(['super_admin']), async (req, res) => {

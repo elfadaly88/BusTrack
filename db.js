@@ -178,6 +178,28 @@ async function initDb() {
   `);
   await dbRun('CREATE INDEX IF NOT EXISTS idx_delay_trip ON delay_alerts(trip_id);');
 
+  // 10. Trip Ratings Table
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS trip_ratings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trip_id INTEGER NOT NULL,
+      passenger_id INTEGER NOT NULL,
+      driver_id INTEGER NOT NULL,
+      tenant_id INTEGER NOT NULL,
+      rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+      comment TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+      FOREIGN KEY (passenger_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+      UNIQUE(trip_id, passenger_id)
+    );
+  `);
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_ratings_driver ON trip_ratings(driver_id);');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_ratings_trip ON trip_ratings(trip_id);');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_ratings_tenant ON trip_ratings(tenant_id);');
+
   // Seed default data if users table is empty
   const userCount = await dbGet('SELECT COUNT(*) as count FROM users');
   if (userCount.count === 0) {
