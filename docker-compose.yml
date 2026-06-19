@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  bustrack:
+    build: .
+    container_name: bustrack_app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - JWT_SECRET=bustrack_production_secret_key_change_me
+      - DB_PATH=/app/data/bustrack.db
+      - NODE_ENV=production
+    volumes:
+      # Mount persistent storage directory from host to container to keep SQLite database safe
+      - ./data:/app/data

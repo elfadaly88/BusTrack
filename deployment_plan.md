@@ -92,7 +92,31 @@
      sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
      sudo netfilter-persistent save
      ```
-  5. تثبيت Node.js و Git وسحب الكود وتفعيل PM2 (نفس خطوات السيرفر الخاص VPS الموضحة أعلاه).
+  5. سحب الكود من GitHub وتثبيته. يمكنك اختيار تشغيله يدوياً بواسطة PM2 أو استخدام Docker وهو الحل الأسهل والأفضل.
+
+### 🐳 طريقة النشر الاحترافية باستخدام Docker و Docker Compose
+يعد استخدام Docker الطريقة الأمثل لنشر التطبيق لضمان تشغيله في بيئة معزولة ومتطابقة تماماً مع بيئة التطوير المحلية دون الحاجة لتثبيت Node.js أو مكاتب إضافية على السيرفر يدوياً.
+
+لقد قمنا بتوفير ملف [Dockerfile](file:///f:/PrivateWork/BusTrack/Dockerfile) وملف [docker-compose.yml](file:///f:/PrivateWork/BusTrack/docker-compose.yml) في جذر المشروع.
+
+* **خطوات التشغيل بواسطة Docker**:
+  1. تثبيت Docker و Docker Compose على السيرفر (Ubuntu):
+     ```bash
+     sudo apt update
+     sudo apt install docker.io docker-compose -y
+     sudo systemctl enable --now docker
+     ```
+  2. سحب كود المشروع من GitHub والانتقال للمجلد:
+     ```bash
+     git clone https://github.com/elfadaly88/BusTrack.git
+     cd BusTrack
+     ```
+  3. تعديل متغيرات البيئة في ملف `docker-compose.yml` (مثل مفتاح التشفير `JWT_SECRET`).
+  4. تشغيل الحاوية في الخلفية (Background daemon):
+     ```bash
+     sudo docker-compose up -d --build
+     ```
+  5. سيقوم Docker ببناء التطبيق وربط المجلد المحلي `./data` ليكون مستودعاً مستمراً لملف قاعدة البيانات SQLite `bustrack.db` بالخارج، وسيعمل التطبيق فوراً على المنفذ `3000`.
 
 ---
 
