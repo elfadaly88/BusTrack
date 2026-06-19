@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BusTrack - مركز المحاكاة والتحكم</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      overflow-y: auto;
+      background: radial-gradient(circle at center, #1b1d35 0%, #0d0e15 100%);
+    }
+    .hero-section {
+      text-align: center;
+      padding: 40px 20px;
+    }
+    .hero-section h1 {
+      font-size: 36px;
+      margin-bottom: 10px;
+      background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-section p {
+      color: var(--text-secondary);
+      font-size: 15px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .sim-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 20px;
+      height: 75vh;
+      margin-bottom: 40px;
+    }
+    @media (max-width: 1200px) {
+      .sim-grid {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .frame-wrapper {
+        height: 600px;
+      }
+    }
+    .frame-wrapper {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: var(--panel-shadow);
+      background: #090a0f;
+    }
+    .frame-header {
+      background: rgba(13, 14, 21, 0.95);
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .frame-header h4 {
+      font-size: 14px;
+      color: white;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .frame-header a {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .frame-header a:hover {
+      color: var(--primary);
+    }
+    iframe {
+      width: 100%;
+      flex: 1;
+      border: none;
+      background: #0d0e15;
+    }
+    .quick-access-panel {
+      margin-bottom: 30px;
+    }
+    .account-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="main-content" style="max-width: 1800px; padding: 20px 40px;">
+    
+    <!-- Hero Banner -->
+    <div class="hero-section">
+      <div style="display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 10px;">
+        <i class="fas fa-bus-alt" style="font-size: 40px; color: var(--primary); filter: drop-shadow(0 0 10px var(--primary-glow));"></i>
+        <h1>مركز محاكاة تتبع الحافلات (BusTrack Simulator)</h1>
+      </div>
+      <p>شاشة تحكم موحدة للمطورين تتيح تجربة الأدوار الثلاثة (مسؤول، سائق، راكب) ومتابعة الاتصال المباشر وتبادل البيانات والخرائط بالزمن الفعلي في شاشة واحدة.</p>
+    </div>
+
+    <!-- Quick Seed Accounts Details -->
+    <div class="glass-panel quick-access-panel">
+      <h3 style="font-size: 16px; margin-bottom: 15px;"><i class="fas fa-database"></i> الحسابات الافتراضية المعدة مسبقاً (Default Seeded Users)</h3>
+      <div style="display: flex; flex-wrap: wrap; gap: 15px; direction: rtl; justify-content: flex-start;">
+        <div class="account-badge">
+          <i class="fas fa-user-shield" style="color: var(--primary);"></i>
+          <span><b>المسؤول:</b> admin@bustrack.com (الباسورد: admin123)</span>
+        </div>
+        <div class="account-badge">
+          <i class="fas fa-steering-wheel" style="color: var(--accent-teal);"></i>
+          <span><b>السائق 1:</b> driver1@bustrack.com (الباسورد: driver123)</span>
+        </div>
+        <div class="account-badge">
+          <i class="fas fa-steering-wheel" style="color: var(--accent-teal);"></i>
+          <span><b>السائق 2:</b> driver2@bustrack.com (الباسورد: driver123)</span>
+        </div>
+        <div class="account-badge">
+          <i class="fas fa-users" style="color: var(--accent-amber);"></i>
+          <span><b>الراكب 1:</b> passenger1@bustrack.com (مشترك في خطين!)</span>
+        </div>
+      </div>
+      <div style="margin-top: 15px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+        <i class="fas fa-info-circle" style="color: var(--primary);"></i>
+        <b>طريقة التجربة السريعة:</b> سجل دخول في شاشة <b>المسؤول (Admin)</b> أولاً، ثم سجل دخول في شاشة <b>السائق (Driver)</b> وابدأ الرحلة، ثم اضغط <b>"بدء محاكاة GPS"</b> لدى السائق وتابع حركة الحافلة والتنبيهات بالزمن الفعلي على شاشات الأدمن والراكب!
+        <br>💡 <b>تجربة الخطوط المتعددة للركاب:</b> الراكب 1 مشترك افتراضياً في "خط الجامعة" و"خط الشروق". جرب بدء رحلة على خط الشروق بينما الراكب يتصفح خط الجامعة، وستشاهد شريط تنبيه فوري يظهر للراكب لإشعاره بوجود رحلة نشطة على خطه الآخر ودعوته لتتبعها!
+      </div>
+    </div>
+
+    <!-- Triple Screen Simulator -->
+    <div class="sim-grid">
+      
+      <!-- Column 1: Admin Panel -->
+      <div class="frame-wrapper">
+        <div class="frame-header">
+          <h4><i class="fas fa-user-shield" style="color: var(--primary);"></i> لوحة تحكم المسؤول (Admin View)</h4>
+          <a href="/admin.html" target="_blank"><i class="fas fa-external-link-alt"></i> فتح في نافذة مستقلة</a>
+        </div>
+        <iframe src="/admin.html"></iframe>
+      </div>
+
+      <!-- Column 2: Driver HUD -->
+      <div class="frame-wrapper">
+        <div class="frame-header">
+          <h4><i class="fas fa-steering-wheel" style="color: var(--accent-teal);"></i> شاشة السائق (Driver HUD)</h4>
+          <a href="/driver.html" target="_blank"><i class="fas fa-external-link-alt"></i> فتح في نافذة مستقلة</a>
+        </div>
+        <iframe src="/driver.html"></iframe>
+      </div>
+
+      <!-- Column 3: Passenger Portal -->
+      <div class="frame-wrapper">
+        <div class="frame-header">
+          <h4><i class="fas fa-users" style="color: var(--accent-amber);"></i> بوابة الراكب (Passenger View)</h4>
+          <a href="/passenger.html" target="_blank"><i class="fas fa-external-link-alt"></i> فتح في نافذة مستقلة</a>
+        </div>
+        <iframe src="/passenger.html"></iframe>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Register Service Worker for PWA -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('Service Worker Registered successfully', reg.scope))
+          .catch(err => console.log('Service Worker Registration failed', err));
+      });
+    }
+  </script>
+
+</body>
+</html>

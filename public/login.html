@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BusTrack - تسجيل الدخول</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center, #252850 0%, #0d0e15 100%);
+    }
+    .login-container {
+      width: 100%;
+      max-width: 450px;
+      padding: 40px;
+      animation: fadeIn 0.8s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .brand {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .brand i {
+      font-size: 48px;
+      color: var(--primary);
+      margin-bottom: 10px;
+      filter: drop-shadow(0 0 15px var(--primary-glow));
+    }
+    .brand h2 {
+      font-size: 28px;
+      margin-bottom: 5px;
+      background: linear-gradient(135deg, #ffffff 0%, #9ca3af 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand p {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+    .presets-container {
+      margin-top: 25px;
+      padding-top: 20px;
+      border-top: 1px solid var(--panel-border);
+      text-align: center;
+    }
+    .presets-title {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 15px;
+      display: block;
+    }
+    .presets-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .preset-btn {
+      padding: 8px;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: var(--transition-smooth);
+    }
+    .preset-btn:hover {
+      background: var(--primary-glow);
+      border-color: var(--primary);
+    }
+  </style>
+</head>
+<body>
+  
+  <div class="login-container glass-panel">
+    <div class="brand">
+      <i class="fas fa-bus-alt"></i>
+      <h2>BusTrack</h2>
+      <p>نظام ذكي متكامل لتتبع حافلات المؤسسات</p>
+    </div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label class="form-label" for="email">البريد الإلكتروني</label>
+        <div style="position: relative;">
+          <i class="fas fa-envelope" style="position: absolute; right: 14px; top: 15px; color: var(--text-secondary);"></i>
+          <input type="email" id="email" class="form-control" style="padding-right: 40px;" placeholder="name@example.com" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="password">كلمة المرور</label>
+        <div style="position: relative;">
+          <i class="fas fa-lock" style="position: absolute; right: 14px; top: 15px; color: var(--text-secondary);"></i>
+          <input type="password" id="password" class="form-control" style="padding-right: 40px;" placeholder="••••••••" required>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">
+        <i class="fas fa-sign-in-alt"></i> دخول
+      </button>
+    </form>
+
+    <div class="presets-container">
+      <span class="presets-title">تسجيل دخول سريع للتجربة (Quick Presets)</span>
+      <div class="presets-grid">
+        <button class="preset-btn" onclick="applyPreset('admin@bustrack.com', 'admin123')">
+          <i class="fas fa-user-shield"></i> المسؤول
+        </button>
+        <button class="preset-btn" onclick="applyPreset('driver1@bustrack.com', 'driver123')">
+          <i class="fas fa-steering-wheel"></i> السائق
+        </button>
+        <button class="preset-btn" onclick="applyPreset('passenger1@bustrack.com', 'passenger123')">
+          <i class="fas fa-users"></i> الراكب
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/shared.js"></script>
+  <script>
+    // Redirect if already logged in
+    const token = localStorage.getItem('bustrack_token');
+    const userStr = localStorage.getItem('bustrack_user');
+    if (token && userStr) {
+      const user = JSON.parse(userStr);
+      if (user.role === 'admin') window.location.href = '/admin.html';
+      else if (user.role === 'driver') window.location.href = '/driver.html';
+      else window.location.href = '/passenger.html';
+    }
+
+    function applyPreset(email, password) {
+      document.getElementById('email').value = email;
+      document.getElementById('password').value = password;
+      showToast('تم ملء بيانات المحاكاة تلقائياً!', 'success');
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const data = await apiCall('/api/auth/login', 'POST', { email, password });
+        localStorage.setItem('bustrack_token', data.token);
+        localStorage.setItem('bustrack_user', JSON.stringify(data.user));
+        
+        showToast('تم تسجيل الدخول بنجاح!', 'success');
+        
+        setTimeout(() => {
+          if (data.user.role === 'admin') window.location.href = '/admin.html';
+          else if (data.user.role === 'driver') window.location.href = '/driver.html';
+          else window.location.href = '/passenger.html';
+        }, 800);
+      } catch (err) {
+        showToast(err.message || 'خطأ في المصادقة', 'danger');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>واجهة السائق - BusTrack</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Leaflet Map CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Socket.io client -->
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      background: #0d0e15;
+    }
+    .mobile-hud {
+      max-width: 480px;
+      width: 100%;
+      margin: 0 auto;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: radial-gradient(circle at top right, #1d1e35 0%, #0d0e15 100%);
+      border-left: 1px solid var(--panel-border);
+      border-right: 1px solid var(--panel-border);
+      box-shadow: 0 0 50px rgba(0,0,0,0.6);
+      position: relative;
+    }
+    .hud-header {
+      padding: 15px 20px;
+      background: rgba(13, 14, 21, 0.9);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .hud-content {
+      flex: 1;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+    .trip-map {
+      height: 250px;
+      border-radius: 16px;
+      border: 1px solid var(--panel-border);
+    }
+    .huge-button {
+      width: 100%;
+      height: 100px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      border: none;
+      color: white;
+      font-size: 20px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 10px 25px var(--primary-glow);
+      transition: var(--transition-smooth);
+    }
+    .huge-button:active {
+      transform: scale(0.96);
+      box-shadow: 0 5px 10px var(--primary-glow);
+    }
+    .huge-button:disabled {
+      background: #374151;
+      color: var(--text-secondary);
+      box-shadow: none;
+      cursor: not-allowed;
+    }
+    .sim-card {
+      border: 1px dashed var(--accent-teal);
+      background: var(--accent-teal-glow);
+    }
+    /* Driver Alert Drawer */
+    .alert-drawer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: rgba(22, 24, 47, 0.95);
+      backdrop-filter: blur(20px);
+      border-bottom: 2px solid var(--accent-amber);
+      padding: 20px;
+      z-index: 200;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      border-bottom-left-radius: 20px;
+      border-bottom-right-radius: 20px;
+      transform: translateY(-100%);
+      transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .alert-drawer.active {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="mobile-hud">
+    
+    <!-- Incoming Delay Alerts Drawer -->
+    <div id="delayDrawer" class="alert-drawer">
+      <div style="display: flex; align-items: flex-start; gap: 15px; direction: rtl;">
+        <div style="background: var(--accent-amber-glow); color: var(--accent-amber); width: 45px; height: 45px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px;">
+          <i class="fas fa-bell"></i>
+        </div>
+        <div style="flex: 1; text-align: right;">
+          <h4 style="color: white; font-size: 16px; margin-bottom: 4px;">طلب تأخير عاجل!</h4>
+          <p id="delayMsg" style="font-size: 13px; color: var(--text-primary); line-height: 1.4;"></p>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 15px; direction: rtl;">
+        <button class="btn btn-teal btn-sm" onclick="respondToDelay('waiting')" style="flex: 1;">سأنتظرك (دقيقة)</button>
+        <button class="btn btn-rose btn-sm" onclick="respondToDelay('rejected')" style="flex: 1;">لا يمكن الانتظار</button>
+      </div>
+    </div>
+
+    <!-- HUD Header -->
+    <div class="hud-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <i class="fas fa-steering-wheel" style="color: var(--primary); font-size: 20px;"></i>
+        <span style="font-weight: 700; color: white;">BusTrack HUD</span>
+      </div>
+      <button onclick="logout()" class="logout-btn" style="padding: 5px 10px; font-size: 12px;">خروج</button>
+    </div>
+
+    <!-- HUD Content -->
+    <div class="hud-content">
+      
+      <!-- User Info -->
+      <div class="glass-panel" style="padding: 15px;">
+        <h4 id="driver-welcome" style="margin: 0; font-size: 16px;">مرحباً بك</h4>
+        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">حالة الاتصال: <span id="socket-status" style="color: var(--accent-rose);">غير متصل</span></p>
+      </div>
+
+      <!-- State 1: Trip Selector -->
+      <div id="state-select-trip" class="glass-panel" style="display: none;">
+        <h3 style="font-size: 18px; margin-bottom: 15px;"><i class="fas fa-calendar-alt"></i> الرحلات المجدولة لك</h3>
+        <div id="scheduled-trips-list" style="display: flex; flex-direction: column; gap: 12px;">
+          <!-- Loaded via JS -->
+        </div>
+      </div>
+
+      <!-- State 2: Active HUD -->
+      <div id="state-active-trip" style="display: none; flex-direction: column; gap: 20px; width: 100%;">
+        
+        <!-- Next Station Info -->
+        <div class="glass-panel" style="padding: 15px; border-left: 4px solid var(--accent-teal);">
+          <span style="font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 4px;">المحطة التالية</span>
+          <h2 id="hud-next-station" style="font-size: 22px; color: white;">جاري التحميل...</h2>
+          <span id="hud-eta" style="font-size: 12px; color: var(--accent-teal); display: block; margin-top: 4px;"></span>
+        </div>
+
+        <!-- Leaflet Map -->
+        <div id="driverMap" class="trip-map"></div>
+
+        <!-- Main Arrive Action -->
+        <button id="arriveBtn" class="huge-button" onclick="arriveAtNextStation()">
+          <i class="fas fa-map-marker-check"></i>
+          <span>وصلت للمحطة الحالية</span>
+        </button>
+
+        <!-- End Trip Action -->
+        <button id="endTripBtn" class="btn btn-rose" onclick="endTrip()" style="width: 100%; display: none; padding: 15px;">
+          <i class="fas fa-flag-checkered"></i> إنهاء الرحلة الحالية
+        </button>
+
+        <!-- Simulation Card -->
+        <div class="glass-panel sim-card">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h4 style="color: var(--accent-teal); font-size: 14px;"><i class="fas fa-robot"></i> محاكي الموقع التلقائي (GPS Simulation)</h4>
+            <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 22px;">
+              <input type="checkbox" id="simToggle" onchange="toggleGPSSimulator()" style="opacity: 0; width: 0; height: 0;">
+              <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #374151; transition: .4s; border-radius: 34px;"></span>
+            </label>
+          </div>
+          <p style="font-size: 11px; color: var(--text-primary); margin-top: 6px; line-height: 1.4;">عند التفعيل، سيقوم التطبيق بمحاكاة السير تلقائياً على خط السير الموضح في الخريطة وبث الموقع وإعلان الوصول للمحطات تلقائياً.</p>
+          <div id="sim-status" style="font-size: 11px; color: var(--accent-teal); font-weight: bold; margin-top: 5px; display: none;">
+            جاري محاكاة الحركة على الطريق...
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Style toggle switch slider custom look -->
+  <style>
+    .switch input:checked + .slider {
+      background-color: var(--accent-teal);
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    .switch input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+  </style>
+
+  <script src="/js/shared.js"></script>
+  <script>
+    // Verify Driver Auth
+    const user = checkAuth(['driver']);
+    if (user) {
+      document.getElementById('driver-welcome').innerText = `مرحباً، كابتن ${user.name}`;
+    }
+
+    let activeTrip = null;
+    let map = null;
+    let routePolyline = null;
+    let driverMarker = null;
+    let stationsMarkers = [];
+    
+    // Simulation state
+    let simInterval = null;
+    let simRouteCoords = [];
+    let currentSimIndex = 0;
+    let nextStationIndex = 0;
+    let currentAlertId = null;
+
+    // Socket.io Setup
+    const socket = io();
+    
+    socket.on('connect', () => {
+      document.getElementById('socket-status').style.color = 'var(--accent-teal)';
+      document.getElementById('socket-status').innerText = 'متصل';
+      socket.emit('authenticate', localStorage.getItem('bustrack_token'));
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('socket-status').style.color = 'var(--accent-rose)';
+      document.getElementById('socket-status').innerText = 'غير متصل';
+    });
+
+    // Listen for Delay Request specifically for this trip
+    socket.on('delay_alert_received', (data) => {
+      if (activeTrip && data.trip_id === activeTrip.id) {
+        playNotificationSound();
+        currentAlertId = data.id;
+        document.getElementById('delayMsg').innerHTML = `
+          الراكب <b>${data.passenger_name}</b> سيتأخر لمدة <b>${data.delay_mins} دقائق</b> عند محطة <b>${data.station_name}</b>.
+        `;
+        document.getElementById('delayDrawer').classList.add('active');
+      }
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadDriverTrips();
+    });
+
+    async function loadDriverTrips() {
+      try {
+        const trips = await apiCall('/api/driver/trips');
+        const active = trips.find(t => t.status === 'active');
+
+        if (active) {
+          setupActiveTrip(active);
+        } else {
+          setupTripSelector(trips.filter(t => t.status === 'scheduled'));
+        }
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    function setupTripSelector(scheduled) {
+      document.getElementById('state-active-trip').style.display = 'none';
+      document.getElementById('state-select-trip').style.display = 'block';
+      
+      const container = document.getElementById('scheduled-trips-list');
+      container.innerHTML = '';
+
+      if (scheduled.length === 0) {
+        container.innerHTML = `<p style="text-align: center; color: var(--text-secondary); font-size: 14px; padding: 20px;">لا توجد رحلات مجدولة لك اليوم.</p>`;
+        return;
+      }
+
+      scheduled.forEach(t => {
+        const card = document.createElement('div');
+        card.className = 'glass-panel';
+        card.style.display = 'flex';
+        card.style.justifyContent = 'space-between';
+        card.style.alignItems = 'center';
+        card.innerHTML = `
+          <div style="text-align: right;">
+            <h4 style="font-size: 15px; color: white;">${t.line_name}</h4>
+            <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;"><i class="fas fa-bus"></i> باص ${t.bus_number} (${t.plate_number})</p>
+          </div>
+          <button class="btn btn-teal btn-sm" onclick="startTrip(${t.id})">بدء الرحلة</button>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    async function startTrip(tripId) {
+      try {
+        const data = await apiCall('/api/driver/start-trip', 'POST', { trip_id: tripId });
+        showToast('انطلقت الرحلة بالتوفيق!', 'success');
+        
+        // Reload all trips to fetch active details
+        loadDriverTrips();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    function setupActiveTrip(trip) {
+      activeTrip = trip;
+      document.getElementById('state-select-trip').style.display = 'none';
+      document.getElementById('state-active-trip').style.display = 'flex';
+      
+      // Join Socket room
+      socket.emit('join_trip', trip.id);
+
+      // Determine next station
+      determineNextStation();
+
+      // Initialize Active Map
+      setTimeout(() => {
+        initDriverMap();
+      }, 100);
+    }
+
+    function determineNextStation() {
+      if (!activeTrip || !activeTrip.stations) return;
+
+      const arrivals = activeTrip.arrivals || [];
+      const arrivedIds = arrivals.map(a => a.station_id);
+
+      // Find first station that is not arrived
+      const next = activeTrip.stations.find(s => !arrivedIds.includes(s.id));
+      
+      if (next) {
+        nextStationIndex = activeTrip.stations.indexOf(next);
+        document.getElementById('hud-next-station').innerText = `${next.sequence_order}. ${next.name}`;
+        document.getElementById('hud-eta').innerText = `الوقت التقديري للوصول: ${next.eta_offset_mins} دقيقة من البداية`;
+        document.getElementById('arriveBtn').style.display = 'flex';
+        document.getElementById('endTripBtn').style.display = 'none';
+      } else {
+        // All stations arrived
+        document.getElementById('hud-next-station').innerText = 'تم الوصول لجميع المحطات!';
+        document.getElementById('hud-eta').innerText = 'جاهز لإنهاء الرحلة';
+        document.getElementById('arriveBtn').style.display = 'none';
+        document.getElementById('endTripBtn').style.display = 'block';
+      }
+    }
+
+    function initDriverMap() {
+      if (map) return;
+
+      const firstStation = activeTrip.stations[0];
+      map = L.map('driverMap').setView([firstStation.latitude, firstStation.longitude], 13);
+      const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      tiles.getContainer().classList.add('dark-leaflet-tiles');
+
+      // Draw Path Polyline
+      const points = activeTrip.stations.map(s => [s.latitude, s.longitude]);
+      routePolyline = L.polyline(points, { color: 'var(--primary)', weight: 5, opacity: 0.8 }).addTo(map);
+
+      // Add Station Markers
+      activeTrip.stations.forEach((s, index) => {
+        const isArrived = (activeTrip.arrivals || []).some(a => a.station_id === s.id);
+        const marker = L.circleMarker([s.latitude, s.longitude], {
+          radius: 8,
+          color: isArrived ? 'var(--accent-teal)' : 'var(--accent-amber)',
+          fillColor: '#000',
+          fillOpacity: 1,
+          weight: 3
+        }).addTo(map).bindPopup(`<b>${s.name}</b>`);
+        
+        stationsMarkers.push({ id: s.id, marker });
+      });
+
+      // Add Driver Bus Marker
+      const startLat = activeTrip.current_latitude || firstStation.latitude;
+      const startLng = activeTrip.current_longitude || firstStation.longitude;
+
+      const busIcon = L.divIcon({
+        html: `<div style="background: var(--accent-teal); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 0 15px var(--accent-teal-glow);"><i class="fas fa-bus" style="color: white; font-size: 16px;"></i></div>`,
+        className: '',
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
+      });
+
+      driverMarker = L.marker([startLat, startLng], { icon: busIcon }).addTo(map);
+      map.setView([startLat, startLng], 14);
+
+      // Generate simulation coordinates intermediate points
+      generateInterpolatedRouteCoords();
+    }
+
+    function generateInterpolatedRouteCoords() {
+      simRouteCoords = [];
+      const stations = activeTrip.stations;
+      
+      for (let i = 0; i < stations.length - 1; i++) {
+        const start = stations[i];
+        const end = stations[i+1];
+        
+        // Add start station
+        simRouteCoords.push({ lat: start.latitude, lng: start.longitude, stationId: start.id, isStation: true });
+        
+        // Add 15 intermediate points
+        const steps = 15;
+        for (let s = 1; s < steps; s++) {
+          const lat = start.latitude + (end.latitude - start.latitude) * (s / steps);
+          const lng = start.longitude + (end.longitude - start.longitude) * (s / steps);
+          simRouteCoords.push({ lat, lng, stationId: null, isStation: false });
+        }
+      }
+      // Add final station
+      const final = stations[stations.length - 1];
+      simRouteCoords.push({ lat: final.latitude, lng: final.longitude, stationId: final.id, isStation: true });
+    }
+
+    async function arriveAtNextStation() {
+      if (!activeTrip || nextStationIndex >= activeTrip.stations.length) return;
+      
+      const station = activeTrip.stations[nextStationIndex];
+      try {
+        const data = await apiCall('/api/driver/arrive-station', 'POST', {
+          trip_id: activeTrip.id,
+          station_id: station.id
+        });
+
+        showToast(`تم إعلان الوصول لمحطة: ${station.name}`, 'success');
+
+        // Update local state
+        if (!activeTrip.arrivals) activeTrip.arrivals = [];
+        activeTrip.arrivals.push({ station_id: station.id, actual_arrival_time: data.actual_arrival_time });
+
+        // Update station marker color
+        const match = stationsMarkers.find(sm => sm.id === station.id);
+        if (match) {
+          match.marker.setStyle({ color: 'var(--accent-teal)' });
+        }
+
+        // Align marker
+        driverMarker.setLatLng([station.latitude, station.longitude]);
+        map.setView([station.latitude, station.longitude], 14);
+
+        // Determine next station
+        determineNextStation();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    async function respondToDelay(response) {
+      if (!currentAlertId) return;
+      try {
+        await apiCall('/api/driver/delay-response', 'POST', {
+          alert_id: currentAlertId,
+          response
+        });
+        showToast(response === 'waiting' ? 'أرسلت للراكب: سأنتظرك' : 'أرسلت للراكب: عذراً، لا يمكن الانتظار', 'success');
+        document.getElementById('delayDrawer').classList.remove('active');
+        currentAlertId = null;
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    async function endTrip() {
+      if (!confirm('هل تريد إنهاء الرحلة الحالية وإغلاق الملف؟')) return;
+      try {
+        await apiCall('/api/driver/end-trip', 'POST', { trip_id: activeTrip.id });
+        showToast('تم إنهاء الرحلة بنجاح!', 'success');
+        
+        // Clear sockets
+        socket.emit('leave_trip', activeTrip.id);
+        
+        // Reset state
+        activeTrip = null;
+        if (simInterval) {
+          clearInterval(simInterval);
+          simInterval = null;
+          document.getElementById('simToggle').checked = false;
+        }
+        
+        map = null;
+        stationsMarkers = [];
+        driverMarker = null;
+
+        // Reload
+        loadDriverTrips();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+
+    // --- GPS SIMULATION LOGIC ---
+    function toggleGPSSimulator() {
+      const isChecked = document.getElementById('simToggle').checked;
+      const statusText = document.getElementById('sim-status');
+      
+      if (isChecked) {
+        statusText.style.display = 'block';
+        startSimulationLoop();
+      } else {
+        statusText.style.display = 'none';
+        if (simInterval) {
+          clearInterval(simInterval);
+          simInterval = null;
+        }
+      }
+    }
+
+    function startSimulationLoop() {
+      if (simInterval) clearInterval(simInterval);
+
+      // Find closest simulation index to current marker position
+      const currPos = driverMarker.getLatLng();
+      let minDistance = Infinity;
+      currentSimIndex = 0;
+
+      simRouteCoords.forEach((coord, idx) => {
+        const dist = Math.hypot(coord.lat - currPos.lat, coord.lng - currPos.lng);
+        if (dist < minDistance) {
+          minDistance = dist;
+          currentSimIndex = idx;
+        }
+      });
+
+      // Tick every 1.5 seconds
+      simInterval = setInterval(async () => {
+        if (!activeTrip) {
+          clearInterval(simInterval);
+          return;
+        }
+
+        currentSimIndex++;
+        if (currentSimIndex >= simRouteCoords.length) {
+          // Finished the line
+          clearInterval(simInterval);
+          document.getElementById('simToggle').checked = false;
+          document.getElementById('sim-status').style.display = 'none';
+          showToast('انتهى مسار الرحلة، يرجى النقر على إنهاء الرحلة', 'info');
+          determineNextStation();
+          return;
+        }
+
+        const point = simRouteCoords[currentSimIndex];
+        
+        // Update Marker on Map
+        driverMarker.setLatLng([point.lat, point.lng]);
+        map.panTo([point.lat, point.lng]);
+
+        // Send location ping via WebSockets
+        socket.emit('driver_location', {
+          tripId: activeTrip.id,
+          latitude: point.lat,
+          longitude: point.lng
+        });
+
+        // If it is a station point, trigger arrival
+        if (point.isStation) {
+          const nextStation = activeTrip.stations[nextStationIndex];
+          if (nextStation && point.stationId === nextStation.id) {
+            // Auto arrive at next station
+            await arriveAtNextStation();
+          }
+        }
+      }, 1500);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>بوابة الراكب - BusTrack</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Leaflet Map CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Socket.io client -->
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      background: #0d0e15;
+    }
+    .mobile-hud {
+      max-width: 480px;
+      width: 100%;
+      margin: 0 auto;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: radial-gradient(circle at top right, #1a1e36 0%, #0d0e15 100%);
+      border-left: 1px solid var(--panel-border);
+      border-right: 1px solid var(--panel-border);
+      box-shadow: 0 0 50px rgba(0,0,0,0.6);
+      position: relative;
+    }
+    .hud-header {
+      padding: 15px 20px;
+      background: rgba(13, 14, 21, 0.9);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .hud-content {
+      flex: 1;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+    .trip-map {
+      height: 250px;
+      border-radius: 16px;
+      border: 1px solid var(--panel-border);
+    }
+    .bell-alert {
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+      70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+      100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="mobile-hud">
+    
+    <!-- HUD Header -->
+    <div class="hud-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <i class="fas fa-street-view" style="color: var(--primary); font-size: 20px;"></i>
+        <span style="font-weight: 700; color: white;">تتبع رحلتي (My Tracker)</span>
+      </div>
+      <button onclick="logout()" class="logout-btn" style="padding: 5px 10px; font-size: 12px;">خروج</button>
+    </div>
+
+    <!-- HUD Content -->
+    <div class="hud-content">
+      
+      <!-- Cross-route persistent warning banner -->
+      <div id="cross-route-banner" class="glass-panel" style="display: none; padding: 12px 15px; border-left: 4px solid var(--accent-teal); margin-bottom: 15px; background: rgba(20, 184, 166, 0.15); align-items: center; justify-content: space-between;">
+        <span style="font-size: 12px; color: white;" id="cross-route-msg"></span>
+        <button class="btn btn-teal btn-sm" style="padding: 4px 8px; font-size: 11px;" id="cross-route-switch-btn">تتبع</button>
+      </div>
+
+      <!-- Welcome Header -->
+      <div class="glass-panel" style="padding: 15px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+          <h4 id="passenger-welcome" style="margin: 0; font-size: 16px;">مرحباً بك</h4>
+          <button class="btn btn-secondary btn-sm" onclick="openPreferenceModal()"><i class="fas fa-cog"></i> اشتراك جديد</button>
+        </div>
+        <!-- Active Route Dropdown Switcher -->
+        <div style="border-top: 1px solid var(--panel-border); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; width: 100%;">
+          <label class="form-label" style="font-size: 12px; margin-bottom: 2px;">الخط الجاري تتبعه حالياً</label>
+          <select id="active-line-switcher" class="form-control" style="padding: 8px 12px;" onchange="switchActiveLine(this.value)">
+            <option value="">-- حدد خط السير --</option>
+          </select>
+          <span style="font-size: 12px; color: var(--text-secondary);" id="selected-station-label">لم تختر محطة مفضلة بعد</span>
+        </div>
+      </div>
+
+      <!-- State 1: No Active Trip -->
+      <div id="no-active-trip" class="glass-panel" style="display: block; text-align: center; padding: 40px 20px;">
+        <div style="font-size: 48px; color: var(--text-secondary); margin-bottom: 15px;">
+          <i class="fas fa-bus-slash"></i>
+        </div>
+        <h3 style="font-size: 18px; margin-bottom: 10px; color: white;">لا توجد رحلة نشطة حالياً</h3>
+        <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;" id="no-trip-reason">يرجى الانتظار حتى يقوم مسؤول النظام بجدولة وبدء الرحلة، أو تأكد من اختيار خط السير المفضل لديك.</p>
+        <button class="btn btn-primary btn-sm" onclick="checkActiveTrip()" style="margin-top: 15px;"><i class="fas fa-sync"></i> تحديث الحالة</button>
+      </div>
+
+      <!-- State 2: Active Tracker -->
+      <div id="active-tracker" style="display: none; flex-direction: column; gap: 20px; width: 100%;">
+        
+        <!-- Live Map -->
+        <div id="passengerMap" class="trip-map"></div>
+
+        <!-- Bus HUD Details -->
+        <div class="glass-panel" style="padding: 15px; display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <span style="font-size: 11px; color: var(--text-secondary); display: block;">الحافلة</span>
+            <h4 id="bus-plate-val" style="color: white; font-size: 14px; margin-top: 2px;">أ ب ج 1234</h4>
+            <span style="font-size: 12px; color: var(--text-secondary);" id="bus-num-val">باص 101</span>
+          </div>
+          <div style="border-right: 1px solid var(--panel-border); padding-right: 15px;">
+            <span style="font-size: 11px; color: var(--text-secondary); display: block;">السائق</span>
+            <h4 id="driver-name-val" style="color: white; font-size: 14px; margin-top: 2px;">أحمد علي</h4>
+            <span style="font-size: 12px; color: var(--text-secondary);" id="driver-phone-val">+20101111</span>
+          </div>
+        </div>
+
+        <!-- Delay Alert Action Panel -->
+        <div class="glass-panel" id="delay-action-panel" style="padding: 15px;">
+          <h4 style="font-size: 14px; margin-bottom: 10px; color: white;"><i class="fas fa-clock"></i> هل ستتأخر عن الحافلة؟</h4>
+          
+          <div id="delay-buttons-group">
+            <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px;">يمكنك إرسال إشعار فوري للسائق لطلب الانتظار (يسمح بطلب واحد فقط لكل رحلة):</p>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary btn-sm" onclick="sendDelayAlert(1)" style="flex: 1;">دقيقة واحدة</button>
+              <button class="btn btn-secondary btn-sm" onclick="sendDelayAlert(2)" style="flex: 1;">دقيقتين</button>
+              <button class="btn btn-secondary btn-sm" onclick="sendDelayAlert(5)" style="flex: 1;">5 دقائق</button>
+            </div>
+          </div>
+
+          <div id="delay-status-group" style="display: none; text-align: center; padding: 10px 0;">
+            <span style="font-size: 13px; color: var(--text-secondary);">حالة طلب الانتظار:</span>
+            <div style="margin-top: 8px;" id="delay-status-badge">
+              <span class="badge badge-warning">بانتظار رد السائق...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notifications Log -->
+        <div class="glass-panel" style="padding: 15px;">
+          <h4 style="font-size: 14px; margin-bottom: 10px; color: #ffffff;"><i class="fas fa-envelope-open-text"></i> الإشعارات المستلمة</h4>
+          <div id="notifications-log" style="display: flex; flex-direction: column; gap: 10px; max-height: 150px; overflow-y: auto; font-size: 13px;">
+            <p style="color: var(--text-secondary); text-align: center;">سجل الإشعارات فارغ حالياً</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Registration Preferences Modal -->
+  <div id="preferencesModal" class="modal-overlay">
+    <div class="modal-content glass-panel" style="max-width: 400px; padding: 25px;">
+      <h3 style="margin-bottom: 20px;"><i class="fas fa-cog"></i> اختيار خط السير والمحطة</h3>
+      <form id="preferencesForm">
+        <div class="form-group">
+          <label class="form-label">خط السير المفضل</label>
+          <select id="pref-line" class="form-control" onchange="loadPrefStations(this.value)" required>
+            <option value="">-- اختر المسار --</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">محطة الانتظار الخاصة بك</label>
+          <select id="pref-station" class="form-control" required disabled>
+            <option value="">-- حدد محطة الوقوف --</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 25px;">
+          <button type="submit" class="btn btn-primary" style="flex: 1;">حفظ وتطبيق</button>
+          <button type="button" class="btn btn-secondary" onclick="closePreferenceModal()" style="flex: 1;">إلغاء</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/shared.js"></script>
+  <script>
+    // Verify Passenger auth
+    const user = checkAuth(['passenger']);
+    if (user) {
+      document.getElementById('passenger-welcome').innerText = `مرحباً، ${user.name}`;
+    }
+
+    let prefLineId = null;
+    let prefStationId = null;
+    let activeTrip = null;
+    let myRegistrations = []; // Holds multiple route subscriptions
+    
+    let map = null;
+    let routePolyline = null;
+    let busMarker = null;
+    let stationsMarkers = [];
+
+    // Socket.io Setup
+    const socket = io();
+    socket.emit('authenticate', localStorage.getItem('bustrack_token'));
+
+    // Handle updates
+    socket.on('location_updated', (data) => {
+      if (activeTrip && data.tripId === activeTrip.id) {
+        updateBusMarker(data.latitude, data.longitude);
+      }
+    });
+
+    socket.on('station_arrived', (data) => {
+      if (activeTrip && data.trip_id === activeTrip.id) {
+        logNotification(`وصل الباص محطة: ${data.station_name}`);
+        playNotificationSound();
+        showToast(`وصل الباص محطة: ${data.station_name}`, 'success');
+
+        // Color station marker teal
+        const match = stationsMarkers.find(sm => sm.id === data.station_id);
+        if (match) {
+          match.marker.setStyle({ color: 'var(--accent-teal)' });
+        }
+
+        // Check if arrived at passenger's selected station!
+        if (data.station_id === prefStationId) {
+          playNotificationSound();
+          logNotification(`⚠️ لقد وصل الباص محطتك المفضلة الآن! يرجى الصعود.`);
+          showToast(`⚠️ لقد وصل الباص محطتك الآن!`, 'warning');
+        }
+      }
+    });
+
+    socket.on('delay_alert_replied', (data) => {
+      // Check if it corresponds to this user
+      if (activeTrip && data.passenger_id === user.id) {
+        playNotificationSound();
+        const badgeContainer = document.getElementById('delay-status-badge');
+        
+        if (data.response === 'waiting') {
+          badgeContainer.innerHTML = `<span class="badge badge-success">تم قبول طلبك! السائق سينتظرك لدقيقة</span>`;
+          logNotification(`استجابة السائق: تم قبول طلب الانتظار.`);
+          showToast('وافق السائق على الانتظار!', 'success');
+        } else {
+          badgeContainer.innerHTML = `<span class="badge badge-danger">عذراً، يجب على السائق التحرك فوراً</span>`;
+          logNotification(`استجابة السائق: عذراً، لا يمكن الانتظار.`);
+          showToast('رفض السائق طلب الانتظار بسبب المواعيد', 'danger');
+        }
+      }
+    });
+
+    socket.on('trip_started', (data) => {
+      // Cross-route active trip alert
+      const matchReg = myRegistrations.find(r => r.line_id === data.line_id);
+      if (matchReg && data.line_id !== prefLineId) {
+        playNotificationSound();
+        showCrossRouteBanner(matchReg.line_id, matchReg.line_name);
+      }
+    });
+
+    socket.on('trip_completed', (data) => {
+      if (activeTrip && data.trip_id === activeTrip.id) {
+        logNotification(`انتهت الرحلة ووصل الباص لمحطة النهاية.`);
+        showToast('وصلت الحافلة لنهاية المسار وانتهت الرحلة', 'info');
+        socket.emit('leave_trip', activeTrip.id);
+        activeTrip = null;
+        map = null;
+        stationsMarkers = [];
+        busMarker = null;
+        document.getElementById('active-tracker').style.display = 'none';
+        document.getElementById('no-active-trip').style.display = 'block';
+      }
+    });
+
+    // On Load
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadPreferences();
+      loadAllLines();
+      checkActiveTrip();
+    });
+
+    async function loadPreferences() {
+      try {
+        const regs = await apiCall('/api/passenger/registration');
+        myRegistrations = regs || [];
+        
+        const switcher = document.getElementById('active-line-switcher');
+        switcher.innerHTML = '';
+        
+        if (myRegistrations.length > 0) {
+          myRegistrations.forEach(r => {
+            switcher.innerHTML += `<option value="${r.line_id}">${r.line_name}</option>`;
+          });
+
+          // Set default line to first registration if not set
+          if (!prefLineId) {
+            prefLineId = myRegistrations[0].line_id;
+          }
+          
+          switcher.value = prefLineId;
+
+          const currentReg = myRegistrations.find(r => r.line_id == prefLineId);
+          if (currentReg) {
+            prefStationId = currentReg.station_id;
+            document.getElementById('selected-station-label').innerText = `المحطة المفضلة: ${currentReg.station_name}`;
+          }
+        } else {
+          switcher.innerHTML = '<option value="">-- لم تشترك في أي خط سير --</option>';
+          document.getElementById('selected-station-label').innerText = 'لم تختر محطة مفضلة بعد';
+          openPreferenceModal();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function switchActiveLine(lineId) {
+      if (!lineId) return;
+      
+      prefLineId = parseInt(lineId);
+      
+      // Clear current map & trackers
+      if (activeTrip) {
+        socket.emit('leave_trip', activeTrip.id);
+      }
+      activeTrip = null;
+      stationsMarkers = [];
+      busMarker = null;
+      
+      // Reset map container HTML to clear Leaflet instance
+      document.getElementById('passengerMap').outerHTML = '<div id="passengerMap" class="trip-map"></div>';
+      map = null;
+
+      const currentReg = myRegistrations.find(r => r.line_id == prefLineId);
+      if (currentReg) {
+        prefStationId = currentReg.station_id;
+        document.getElementById('selected-station-label').innerText = `المحطة المفضلة: ${currentReg.station_name}`;
+      }
+
+      document.getElementById('cross-route-banner').style.display = 'none';
+
+      checkActiveTrip();
+    }
+
+    function showCrossRouteBanner(lineId, lineName) {
+      const banner = document.getElementById('cross-route-banner');
+      const msg = document.getElementById('cross-route-msg');
+      const btn = document.getElementById('cross-route-switch-btn');
+
+      msg.innerHTML = `🔔 حافلة نشطة حالياً تسير على <b>${lineName}</b>.`;
+      banner.style.display = 'flex';
+      
+      btn.onclick = () => {
+        document.getElementById('active-line-switcher').value = lineId;
+        switchActiveLine(lineId);
+      };
+    }
+
+    async function checkActiveTrip() {
+      if (!prefLineId) return;
+
+      try {
+        const trip = await apiCall(`/api/passenger/active-trip/${prefLineId}`);
+        if (trip) {
+          setupActiveTracker(trip);
+        } else {
+          document.getElementById('active-tracker').style.display = 'none';
+          document.getElementById('no-active-trip').style.display = 'block';
+        }
+
+        // Proactively check other subscribed lines for active trips
+        for (let reg of myRegistrations) {
+          if (reg.line_id !== prefLineId) {
+            const otherTrip = await apiCall(`/api/passenger/active-trip/${reg.line_id}`);
+            if (otherTrip) {
+              showCrossRouteBanner(reg.line_id, reg.line_name);
+              break; // Show one banner at a time
+            }
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function setupActiveTracker(trip) {
+      activeTrip = trip;
+      document.getElementById('no-active-trip').style.display = 'none';
+      document.getElementById('active-tracker').style.display = 'flex';
+
+      // Join socket room
+      socket.emit('join_trip', trip.id);
+
+      // Populate info
+      document.getElementById('bus-plate-val').innerText = trip.plate_number;
+      document.getElementById('bus-num-val').innerText = `باص ${trip.bus_number}`;
+      document.getElementById('driver-name-val').innerText = trip.driver_name;
+      document.getElementById('driver-phone-val').innerText = trip.driver_phone || '';
+
+      // Set delay alert status if user already sent it
+      if (trip.my_delay_alert) {
+        document.getElementById('delay-buttons-group').style.display = 'none';
+        document.getElementById('delay-status-group').style.display = 'block';
+        
+        const resp = trip.my_delay_alert.driver_response;
+        const badge = document.getElementById('delay-status-badge');
+        if (resp === 'pending') {
+          badge.innerHTML = `<span class="badge badge-warning">بانتظار رد السائق...</span>`;
+        } else if (resp === 'waiting') {
+          badge.innerHTML = `<span class="badge badge-success">تم قبول طلبك! السائق سينتظرك لدقيقة</span>`;
+        } else {
+          badge.innerHTML = `<span class="badge badge-danger">عذراً، يجب على السائق التحرك فوراً</span>`;
+        }
+      } else {
+        document.getElementById('delay-buttons-group').style.display = 'block';
+        document.getElementById('delay-status-group').style.display = 'none';
+      }
+
+      // Initialize map
+      setTimeout(() => {
+        initPassengerMap();
+      }, 100);
+    }
+
+    function initPassengerMap() {
+      if (map) return;
+
+      const firstStation = activeTrip.stations[0];
+      map = L.map('passengerMap').setView([firstStation.latitude, firstStation.longitude], 13);
+      const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      tiles.getContainer().classList.add('dark-leaflet-tiles');
+
+      // Draw path line
+      const points = activeTrip.stations.map(s => [s.latitude, s.longitude]);
+      routePolyline = L.polyline(points, { color: 'var(--primary)', weight: 5, opacity: 0.8 }).addTo(map);
+
+      // Add stations markers
+      activeTrip.stations.forEach(s => {
+        const isArrived = activeTrip.arrivals.some(a => a.station_id === s.id);
+        const isPreferred = (s.id === prefStationId);
+
+        let color = isArrived ? 'var(--accent-teal)' : 'var(--accent-amber)';
+        let radius = 7;
+        let weight = 2;
+
+        if (isPreferred) {
+          color = '#ff0055'; // Pink/red accent for passenger preferred waiting station
+          radius = 9;
+          weight = 4;
+        }
+
+        const marker = L.circleMarker([s.latitude, s.longitude], {
+          radius,
+          color,
+          fillColor: '#000',
+          fillOpacity: 1,
+          weight
+        }).addTo(map);
+
+        if (isPreferred) {
+          marker.bindPopup(`<b>محطة انتظارك المفضلة: ${s.name}</b>`).openPopup();
+        } else {
+          marker.bindPopup(`<b>${s.name}</b>`);
+        }
+
+        stationsMarkers.push({ id: s.id, marker });
+      });
+
+      // Add bus location marker
+      const busLat = activeTrip.current_latitude || firstStation.latitude;
+      const busLng = activeTrip.current_longitude || firstStation.longitude;
+
+      const busIcon = L.divIcon({
+        html: `<div style="background: var(--primary); width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 0 15px var(--primary-glow);"><i class="fas fa-bus" style="color: white; font-size: 14px;"></i></div>`,
+        className: '',
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      });
+
+      busMarker = L.marker([busLat, busLng], { icon: busIcon }).addTo(map);
+      map.setView([busLat, busLng], 14);
+    }
+
+    function updateBusMarker(lat, lng) {
+      if (busMarker) {
+        busMarker.setLatLng([lat, lng]);
+      }
+    }
+
+    async function sendDelayAlert(minutes) {
+      if (!activeTrip) return;
+      try {
+        const alert = await apiCall('/api/passenger/delay-alert', 'POST', {
+          trip_id: activeTrip.id,
+          station_id: prefStationId,
+          delay_mins: minutes
+        });
+
+        showToast('تم إرسال طلب الانتظار للسائق بنجاح', 'success');
+        
+        // Hide options, show status
+        document.getElementById('delay-buttons-group').style.display = 'none';
+        document.getElementById('delay-status-group').style.display = 'block';
+        document.getElementById('delay-status-badge').innerHTML = `<span class="badge badge-warning">بانتظار رد السائق...</span>`;
+        logNotification(`أرسلت طلب انتظار لـ ${minutes} دقائق.`);
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    function logNotification(text) {
+      const container = document.getElementById('notifications-log');
+      
+      // Clear empty notification placeholder if there
+      if (container.children.length === 1 && container.children[0].innerText.includes('سجل الإشعارات فارغ')) {
+        container.innerHTML = '';
+      }
+
+      const p = document.createElement('p');
+      p.style.borderBottom = '1px solid var(--panel-border)';
+      p.style.paddingBottom = '4px';
+      p.style.color = '#ffffff';
+      
+      const time = new Date().toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+      p.innerHTML = `<span style="color: var(--text-secondary); font-size: 11px;">[${time}]</span> ${text}`;
+      
+      container.insertBefore(p, container.firstChild);
+    }
+
+
+    // --- PREFERENCES LOGIC ---
+    let allLines = [];
+    async function loadAllLines() {
+      try {
+        allLines = await apiCall('/api/admin/lines');
+        const select = document.getElementById('pref-line');
+        select.innerHTML = '<option value="">-- اختر المسار --</option>';
+        allLines.forEach(l => {
+          select.innerHTML += `<option value="${l.id}">${l.name}</option>`;
+        });
+        
+        if (prefLineId) {
+          document.getElementById('pref-line').value = prefLineId;
+          loadPrefStations(prefLineId);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function loadPrefStations(lineId) {
+      const select = document.getElementById('pref-station');
+      select.innerHTML = '<option value="">-- حدد محطة الوقوف --</option>';
+      
+      if (!lineId) {
+        select.disabled = true;
+        return;
+      }
+
+      const line = allLines.find(l => l.id == lineId);
+      if (line && line.stations) {
+        line.stations.forEach(s => {
+          select.innerHTML += `<option value="${s.id}">${s.sequence_order}. ${s.name}</option>`;
+        });
+        select.disabled = false;
+        
+        if (prefStationId) {
+          select.value = prefStationId;
+        }
+      }
+    }
+
+    function openPreferenceModal() {
+      document.getElementById('preferencesModal').classList.add('active');
+    }
+
+    function closePreferenceModal() {
+      document.getElementById('preferencesModal').classList.remove('active');
+    }
+
+    document.getElementById('preferencesForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const line_id = parseInt(document.getElementById('pref-line').value);
+      const station_id = parseInt(document.getElementById('pref-station').value);
+
+      try {
+        const reg = await apiCall('/api/passenger/registration', 'POST', { line_id, station_id });
+        
+        prefLineId = reg.line_id;
+        prefStationId = reg.station_id;
+        document.getElementById('selected-station-label').innerText = `${reg.line_name} | محطة ${reg.station_name}`;
+        
+        showToast('تم حفظ الإعدادات المفضلة وتحديث خريطة التتبع', 'success');
+        closePreferenceModal();
+
+        // Refresh tracking map & state
+        map = null;
+        stationsMarkers = [];
+        busMarker = null;
+        checkActiveTrip();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    });
+  </script>
+</body>
+</html>
