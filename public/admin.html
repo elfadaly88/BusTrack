@@ -57,6 +57,7 @@
       <button class="tab-btn" onclick="switchTab('drivers-tab')"><i class="fas fa-user-tie"></i> السائقين</button>
       <button class="tab-btn" onclick="switchTab('passengers-tab')"><i class="fas fa-users"></i> الركاب والاشتراكات</button>
       <button class="tab-btn" id="ratingsTabBtn" onclick="switchTab('ratings-tab'); loadRatingsData();"><i class="fas fa-star"></i> التقييمات</button>
+      <button class="tab-btn" id="reportsTabBtn" onclick="switchTab('reports-tab'); loadReportsData();"><i class="fas fa-chart-line"></i> التقارير والإحصائيات</button>
     </div>
 
     <!-- TAB 1: Live Dashboard -->
@@ -185,6 +186,76 @@
           </div>
         </div>
       </div>
+
+      <!-- Recurring Scheduling Section -->
+      <div class="map-layout" style="margin-top: 30px; grid-template-columns: 350px 1fr; height: auto;">
+        <!-- Left Panel: Create Schedule Form -->
+        <div class="glass-panel">
+          <h3 style="margin-bottom: 20px;"><i class="fas fa-clock"></i> إضافة جدولة رحلة متكررة</h3>
+          <form id="scheduleForm">
+            <div class="form-group">
+              <label class="form-label">اختر الخط</label>
+              <select id="schedule-line" class="form-control" required>
+                <option value="">-- اختر المسار --</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">اختر السائق</label>
+              <select id="schedule-driver" class="form-control" required>
+                <option value="">-- اختر السائق --</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">اختر الحافلة</label>
+              <select id="schedule-bus" class="form-control" required>
+                <option value="">-- اختر الحافلة --</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">يوم التكرار الأسبوعي</label>
+              <select id="schedule-day" class="form-control" required>
+                <option value="">-- اختر اليوم --</option>
+                <option value="0">الأحد (Sunday)</option>
+                <option value="1">الاثنين (Monday)</option>
+                <option value="2">الثلاثاء (Tuesday)</option>
+                <option value="3">الأربعاء (Wednesday)</option>
+                <option value="4">الخميس (Thursday)</option>
+                <option value="5">الجمعة (Friday)</option>
+                <option value="6">السبت (Saturday)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">وقت الانطلاق (محلّي)</label>
+              <input type="time" id="schedule-time" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-teal" style="width: 100%;">
+              <i class="fas fa-calendar-plus"></i> حفظ الجدولة المتكررة
+            </button>
+          </form>
+        </div>
+
+        <!-- Right Panel: Schedules List -->
+        <div class="glass-panel">
+          <h3 style="margin-bottom: 20px;"><i class="fas fa-calendar-alt"></i> جداول الرحلات التلقائية الفعّالة</h3>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>المسار</th>
+                  <th>السائق</th>
+                  <th>الحافلة</th>
+                  <th>اليوم الأسبوعي</th>
+                  <th>وقت الانطلاق</th>
+                  <th>الإجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="schedules-tbody">
+                <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">لا توجد جداول مضافة حالياً</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- TAB 3: Route Designer -->
@@ -285,6 +356,19 @@
 
     <!-- TAB 6: Passengers Management -->
     <section id="passengers-tab" class="tab-content" style="display: none;">
+      <!-- Invitation Code Management Card -->
+      <div class="glass-panel" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+        <div>
+          <h3 style="font-size: 16px; margin-bottom: 4px;"><i class="fas fa-key" style="color: var(--accent-teal);"></i> كود دعوة الانضمام للمؤسسة (Invitation Code)</h3>
+          <p style="color: var(--text-secondary); font-size: 13px;">شارك هذا الكود مع الموظفين أو الطلاب ليتمكنوا من تسجيل حساباتهم ذاتياً والاشتراك مباشرة.</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <input type="text" id="tenant-invite-code" class="form-control" style="width: 200px; font-weight: bold; text-align: center; letter-spacing: 1px;" placeholder="كود غير محدد">
+          <button class="btn btn-teal btn-sm" onclick="saveInviteCode()"><i class="fas fa-save"></i> حفظ</button>
+          <button class="btn btn-secondary btn-sm" onclick="generateRandomInviteCode()"><i class="fas fa-random"></i> توليد عشوائي</button>
+        </div>
+      </div>
+
       <div class="map-layout" style="grid-template-columns: 1fr 400px; height: auto;">
         <!-- Left side: Passengers List -->
         <div class="glass-panel">
@@ -486,6 +570,112 @@
     </div>
   </section>
 
+  <!-- TAB 8: Reports & Analytics -->
+  <section id="reports-tab" class="tab-content" style="display: none;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <h2 style="font-size: 20px; font-weight: 700; color: white; margin-bottom: 4px;"><i class="fas fa-chart-pie" style="color: var(--primary);"></i> لوحة التقارير والتحليلات التاريخية</h2>
+        <p style="color: var(--text-secondary); font-size: 13px;">مؤشرات الأداء التاريخية، أوقات الوصول الفعلية، وتأخيرات المحطات</p>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn btn-secondary btn-sm" onclick="window.print()"><i class="fas fa-print"></i> طباعة التقرير PDF</button>
+        <button class="btn btn-primary btn-sm" onclick="loadReportsData()"><i class="fas fa-sync-alt"></i> تحديث البيانات</button>
+      </div>
+    </div>
+
+    <!-- Weekly Active Count Widget -->
+    <div class="glass-panel" style="margin-bottom: 30px; display: flex; align-items: center; gap: 30px; flex-wrap: wrap;">
+      <div class="stat-icon primary" style="width: 70px; height: 70px; font-size: 32px;"><i class="fas fa-users-cog"></i></div>
+      <div>
+        <h3 id="report-active-passengers" style="font-size: 36px; line-height: 1;">0</h3>
+        <p style="color: var(--text-primary); font-weight: 600; margin-top: 5px;">الركاب النشطين أسبوعياً (الـ 7 أيام الماضية)</p>
+        <span style="font-size: 12px; color: var(--text-secondary);">النشاط يشمل إرسال طلب تأخير أو تقييم رحلة منتهيّة</span>
+      </div>
+      
+      <div style="margin-right: auto; padding-right: 20px; border-right: 1px dashed var(--panel-border);">
+        <h4 style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">معدل النشاط التاريخي (بالأسابيع):</h4>
+        <div id="weekly-trends-container" style="display: flex; gap: 20px; text-align: center;">
+          <!-- Render week activity lists -->
+        </div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+      <!-- Report Table 1: Avg Arrival per Station vs ETA -->
+      <div class="glass-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <h3 style="font-size: 16px;"><i class="fas fa-stopwatch" style="color: var(--accent-teal);"></i> متوسط أوقات الوصول للمحطات (مقارنة بالـ ETA)</h3>
+          <button class="btn btn-secondary btn-sm" onclick="exportToCSV('avg-arrivals-table', 'station-eta-deviations')"><i class="fas fa-file-csv"></i> CSV</button>
+        </div>
+        <div class="table-container" style="max-height: 350px;">
+          <table id="avg-arrivals-table">
+            <thead>
+              <tr>
+                <th>المسار/الخط</th>
+                <th>المحطة</th>
+                <th>الـ ETA المخطط</th>
+                <th>متوسط الانحراف</th>
+              </tr>
+            </thead>
+            <tbody id="report-avg-arrivals-tbody">
+              <!-- Loaded via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Report Table 2: Delay Alerts requests per station -->
+      <div class="glass-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <h3 style="font-size: 16px;"><i class="fas fa-exclamation-triangle" style="color: var(--accent-amber);"></i> إحصائيات طلبات التأخير (المحطات الأكثر تأخراً)</h3>
+          <button class="btn btn-secondary btn-sm" onclick="exportToCSV('delay-stats-table', 'station-delay-stats')"><i class="fas fa-file-csv"></i> CSV</button>
+        </div>
+        <div class="table-container" style="max-height: 350px;">
+          <table id="delay-stats-table">
+            <thead>
+              <tr>
+                <th>المحطة</th>
+                <th>الخط</th>
+                <th>إجمالي الطلبات</th>
+                <th>إجمالي دقائق التأخر</th>
+                <th>المتوسط المطلق</th>
+              </tr>
+            </thead>
+            <tbody id="report-delay-stats-tbody">
+              <!-- Loaded via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Report Table 3: Driver Trip Logs & Durations -->
+    <div class="glass-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 style="font-size: 16px;"><i class="fas fa-history" style="color: var(--primary);"></i> سجل رحلات السائقين مع مدد الرحلة الفعلية</h3>
+        <button class="btn btn-secondary btn-sm" onclick="exportToCSV('driver-logs-table', 'driver-trip-durations')"><i class="fas fa-file-csv"></i> CSV</button>
+      </div>
+      <div class="table-container" style="max-height: 400px;">
+        <table id="driver-logs-table">
+          <thead>
+            <tr>
+              <th>رقم الرحلة</th>
+              <th>اسم الخط</th>
+              <th>اسم السائق</th>
+              <th>رقم الحافلة</th>
+              <th>وقت البدء</th>
+              <th>وقت الانتهاء</th>
+              <th>مدة الرحلة</th>
+            </tr>
+          </thead>
+          <tbody id="report-driver-logs-tbody">
+            <!-- Loaded via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <script src="/js/shared.js"></script>
   <script>
     // Verify admin login
@@ -564,15 +754,20 @@
     });
 
     // On Load
-    window.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('DOMContentLoaded', async () => {
       initLiveMap();
       loadStats();
       loadActiveTrips();
-      loadBuses();
-      loadDrivers();
-      loadLines();
+      await Promise.all([
+        loadBuses(),
+        loadDrivers(),
+        loadLines()
+      ]);
+      populateScheduleFormDropdowns();
       loadTripsLog();
       loadPassengers();
+      loadInviteCode();
+      loadSchedules();
     });
 
     // Tabs control
@@ -596,6 +791,9 @@
         }, 100);
       } else if (tabId === 'passengers-tab') {
         loadPassengers();
+        loadInviteCode();
+      } else if (tabId === 'trips-dispatch') {
+        loadSchedules();
       }
     }
 
@@ -894,6 +1092,7 @@
       } catch (err) {
         console.error(err);
       }
+      if (document.getElementById('schedule-line')) populateScheduleFormDropdowns();
     }
 
     function getPassengerCountForLine(lineId) {
@@ -1027,6 +1226,7 @@
       } catch (err) {
         console.error(err);
       }
+      if (document.getElementById('schedule-bus')) populateScheduleFormDropdowns();
     }
 
     function openBusModal(id = null) {
@@ -1122,6 +1322,7 @@
       } catch (err) {
         console.error(err);
       }
+      if (document.getElementById('schedule-driver')) populateScheduleFormDropdowns();
     }
 
     function openDriverModal(id = null) {
@@ -1516,6 +1717,304 @@
         loadRatingsData();
       }
     });
+    // ======= END RATINGS TAB =======
+
+    // ======= INVITATION CODE LOGIC =======
+    async function loadInviteCode() {
+      try {
+        const data = await apiCall('/api/admin/invite-code');
+        document.getElementById('tenant-invite-code').value = data.code || '';
+      } catch (err) {
+        console.error('Error loading invite code:', err);
+      }
+    }
+
+    async function saveInviteCode() {
+      const code = document.getElementById('tenant-invite-code').value.trim();
+      if (!code) {
+        showToast('يرجى كتابة كود دعوة صالح.', 'warning');
+        return;
+      }
+      try {
+        await apiCall('/api/admin/invite-code', 'POST', { code });
+        showToast('تم حفظ كود الدعوة بنجاح!', 'success');
+      } catch (err) {
+        showToast(err.message || 'فشل حفظ كود الدعوة', 'danger');
+      }
+    }
+
+    function generateRandomInviteCode() {
+      const random = 'JOIN-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      document.getElementById('tenant-invite-code').value = random;
+      showToast('تم توليد كود عشوائي، لا تنسَ النقر على حفظ للتطبيق.', 'info');
+    }
+
+    // ======= SCHEDULES LOGIC =======
+    async function loadSchedules() {
+      try {
+        const data = await apiCall('/api/admin/schedules');
+        const tbody = document.getElementById('schedules-tbody');
+        tbody.innerHTML = '';
+
+        if (!data.length) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">لا توجد جداول مضافة حالياً</td></tr>`;
+          return;
+        }
+
+        const weekdaysArabic = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+        data.forEach(s => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td><span style="font-weight: 600; color: white;">${s.line_name}</span></td>
+            <td>${s.driver_name}</td>
+            <td>باص ${s.bus_number}</td>
+            <td>${weekdaysArabic[s.day_of_week] || s.day_of_week}</td>
+            <td><i class="fas fa-clock" style="color: var(--accent-teal);"></i> ${s.time_of_day}</td>
+            <td>
+              <button class="btn btn-rose btn-sm" onclick="deleteSchedule(${s.id})">
+                <i class="fas fa-trash-alt"></i> حذف
+              </button>
+            </td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        console.error('Error loading schedules:', err);
+      }
+    }
+
+    function populateScheduleFormDropdowns() {
+      const lineSelect = document.getElementById('schedule-line');
+      const driverSelect = document.getElementById('schedule-driver');
+      const busSelect = document.getElementById('schedule-bus');
+      if (!lineSelect || !driverSelect || !busSelect) return;
+
+      lineSelect.innerHTML = '<option value="">-- اختر المسار --</option>';
+      lines.forEach(l => {
+        lineSelect.innerHTML += `<option value="${l.id}">${l.name}</option>`;
+      });
+
+      driverSelect.innerHTML = '<option value="">-- اختر السائق --</option>';
+      drivers.forEach(d => {
+        driverSelect.innerHTML += `<option value="${d.id}">${d.name}</option>`;
+      });
+
+      busSelect.innerHTML = '<option value="">-- اختر الحافلة --</option>';
+      buses.forEach(b => {
+        if (b.status === 'active') {
+          busSelect.innerHTML += `<option value="${b.id}">باص ${b.bus_number} (${b.plate_number})</option>`;
+        }
+      });
+    }
+
+    async function deleteSchedule(id) {
+      if (!confirm('هل أنت متأكد من حذف هذه الجدولة المتكررة؟')) return;
+      try {
+        await apiCall(`/api/admin/schedules/${id}`, 'DELETE');
+        showToast('تم حذف الجدولة المتكررة بنجاح!', 'success');
+        loadSchedules();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    document.getElementById('scheduleForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const line_id = parseInt(document.getElementById('schedule-line').value);
+      const driver_id = parseInt(document.getElementById('schedule-driver').value);
+      const bus_id = parseInt(document.getElementById('schedule-bus').value);
+      const day_of_week = parseInt(document.getElementById('schedule-day').value);
+      const time_of_day = document.getElementById('schedule-time').value;
+
+      try {
+        await apiCall('/api/admin/schedules', 'POST', {
+          line_id,
+          driver_id,
+          bus_id,
+          day_of_week,
+          time_of_day
+        });
+
+        showToast('تمت إضافة الجدولة المتكررة بنجاح!', 'success');
+        document.getElementById('scheduleForm').reset();
+        loadSchedules();
+      } catch (err) {
+        showToast(err.message || 'فشل إضافة الجدولة', 'danger');
+      }
+    });
+
+    // ======= REPORTS & ANALYTICS LOGIC =======
+    async function loadReportsData() {
+      await Promise.all([
+        loadReportActivePassengers(),
+        loadReportAvgArrivals(),
+        loadReportDelayStats(),
+        loadReportDriverLogs()
+      ]);
+    }
+
+    async function loadReportActivePassengers() {
+      try {
+        const data = await apiCall('/api/admin/reports/active-passengers');
+        document.getElementById('report-active-passengers').innerText = data.currentActive;
+
+        const trendContainer = document.getElementById('weekly-trends-container');
+        trendContainer.innerHTML = '';
+
+        if (!data.trend || !data.trend.length) {
+          trendContainer.innerHTML = '<span style="color: var(--text-secondary); font-size: 13px;">لا توجد بيانات كافية</span>';
+          return;
+        }
+
+        const recentTrends = data.trend.slice(0, 4).reverse();
+        recentTrends.forEach(t => {
+          const weekNum = t.week_identifier.split('-')[1];
+          trendContainer.innerHTML += `
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 8px; padding: 6px 12px; min-width: 70px;">
+              <div style="font-weight: 700; color: white; font-size: 16px;">${t.active_count}</div>
+              <div style="font-size: 11px; color: var(--text-secondary);">أسبوع ${weekNum}</div>
+            </div>
+          `;
+        });
+      } catch (err) {
+        console.error('Error loading passenger stats:', err);
+      }
+    }
+
+    async function loadReportAvgArrivals() {
+      try {
+        const data = await apiCall('/api/admin/reports/avg-arrivals');
+        const tbody = document.getElementById('report-avg-arrivals-tbody');
+        tbody.innerHTML = '';
+
+        if (!data.length) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">لا توجد بيانات وصول مسجلة بعد</td></tr>';
+          return;
+        }
+
+        data.forEach(r => {
+          let diffText = '';
+          let badgeClass = 'badge-success';
+          if (r.avg_diff_mins > 0) {
+            diffText = `تأخير +${r.avg_diff_mins} دقيقة`;
+            badgeClass = 'badge-danger';
+          } else if (r.avg_diff_mins < 0) {
+            diffText = `مبكر ${Math.abs(r.avg_diff_mins)} دقيقة`;
+            badgeClass = 'badge-success';
+          } else {
+            diffText = 'دقيق بالكامل';
+            badgeClass = 'badge-success';
+          }
+
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td><span style="font-weight: 600; color: white;">${r.line_name}</span></td>
+            <td>${r.station_name}</td>
+            <td>+${r.eta_offset_mins} دقيقة</td>
+            <td><span class="badge ${badgeClass}">${diffText}</span></td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        console.error('Error loading avg arrivals:', err);
+      }
+    }
+
+    async function loadReportDelayStats() {
+      try {
+        const data = await apiCall('/api/admin/reports/delay-stats');
+        const tbody = document.getElementById('report-delay-stats-tbody');
+        tbody.innerHTML = '';
+
+        if (!data.length) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">لا توجد طلبات تأخير تاريخية</td></tr>';
+          return;
+        }
+
+        data.forEach(r => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td><span style="font-weight: 600; color: white;">${r.station_name}</span></td>
+            <td>${r.line_name}</td>
+            <td>${r.total_delay_requests} طلبات</td>
+            <td>${r.total_delay_mins_requested} دقيقة</td>
+            <td>+${r.avg_delay_mins_requested} دقيقة/طلب</td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        console.error('Error loading delay stats:', err);
+      }
+    }
+
+    async function loadReportDriverLogs() {
+      try {
+        const data = await apiCall('/api/admin/reports/driver-logs');
+        const tbody = document.getElementById('report-driver-logs-tbody');
+        tbody.innerHTML = '';
+
+        if (!data.length) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">لا توجد رحلات مكتملة في السجل</td></tr>';
+          return;
+        }
+
+        data.forEach(r => {
+          const start = new Date(r.start_time).toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'});
+          const end = new Date(r.end_time).toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'});
+          const date = new Date(r.end_time).toLocaleDateString('ar-EG', {day:'2-digit', month:'2-digit', year:'numeric'});
+
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>#${r.trip_id}</td>
+            <td><span style="font-weight: 600; color: white;">${r.line_name}</span></td>
+            <td>${r.driver_name}</td>
+            <td>باص ${r.bus_number}</td>
+            <td>${start} (${date})</td>
+            <td>${end}</td>
+            <td><span class="badge badge-success">${r.duration_mins} دقيقة</span></td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        console.error('Error loading driver logs:', err);
+      }
+    }
+
+    function exportToCSV(tableId, filename) {
+      const table = document.getElementById(tableId);
+      if (!table) return;
+
+      let csv = [];
+      const rows = table.querySelectorAll('tr');
+      
+      for (let i = 0; i < rows.length; i++) {
+        const row = [];
+        const cols = rows[i].querySelectorAll('td, th');
+        
+        for (let j = 0; j < cols.length; j++) {
+          let cleanText = cols[j].innerText.trim().replace(/"/g, '""').replace(/\n/g, ' ');
+          row.push('"' + cleanText + '"');
+        }
+        csv.push(row.join(','));
+      }
+
+      const csvContent = '\uFEFF' + csv.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${filename}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      showToast('تم تصدير ملف CSV بنجاح!', 'success');
+    }
+
     // ======= END RATINGS TAB =======
   </script>
 </body>

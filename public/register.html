@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BusTrack - تسجيل راكب جديد</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center, #252850 0%, #0d0e15 100%);
+      padding: 20px 0;
+    }
+    .register-container {
+      width: 100%;
+      max-width: 500px;
+      padding: 35px;
+      animation: fadeIn 0.8s ease;
+      margin: auto;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .brand {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+    .brand i {
+      font-size: 40px;
+      color: var(--primary);
+      margin-bottom: 8px;
+      filter: drop-shadow(0 0 12px var(--primary-glow));
+    }
+    .brand h2 {
+      font-size: 24px;
+      margin-bottom: 4px;
+      background: linear-gradient(135deg, #ffffff 0%, #9ca3af 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand p {
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+    .invite-status-box {
+      margin-top: 10px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      animation: slideDown 0.3s ease;
+    }
+    .invite-success {
+      background: var(--accent-teal-glow);
+      color: var(--accent-teal);
+      border: 1px solid rgba(20, 184, 166, 0.3);
+    }
+    .invite-error {
+      background: var(--accent-rose-glow);
+      color: var(--accent-rose);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .routes-section {
+      display: none;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px dashed var(--panel-border);
+      animation: slideDown 0.4s ease;
+    }
+    .login-link {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  
+  <div class="register-container glass-panel">
+    <div class="brand">
+      <i class="fas fa-bus-alt"></i>
+      <h2>انضمام كراكب</h2>
+      <p>قم بالتسجيل ذاتياً للمتابعة وتلقي تنبيهات الوصول والمغادرة</p>
+    </div>
+
+    <form id="registerForm">
+      <!-- 1. Invitation Code -->
+      <div class="form-group">
+        <label class="form-label" for="invite_code">كود الدعوة للمؤسسة (Invitation Code)</label>
+        <div style="position: relative; display: flex; gap: 8px;">
+          <div style="position: relative; flex: 1;">
+            <i class="fas fa-key" style="position: absolute; right: 14px; top: 15px; color: var(--text-secondary);"></i>
+            <input type="text" id="invite_code" class="form-control" style="padding-right: 40px;" placeholder="أدخل الكود الذي شاركه معك الأدمن" required>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="verifyInviteBtn" onclick="verifyInviteCode()" style="padding: 0 16px;">تحقق</button>
+        </div>
+        <div class="invite-status-box" id="inviteStatusBox"></div>
+      </div>
+
+      <!-- User Details (Hidden initially to ensure they enter invite code first) -->
+      <div id="detailsSection" style="display: none;">
+        <div class="form-group">
+          <label class="form-label" for="name">الاسم الكامل</label>
+          <div style="position: relative;">
+            <i class="fas fa-user" style="position: absolute; right: 14px; top: 15px; color: var(--text-secondary);"></i>
+            <input type="text" id="name" class="form-control" style="padding-right: 40px;" placeholder="مثال: سارة محمد" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="email">البريد الإلكتروني</label>
+          <div style="position: relative;">
+            <i class="fas fa-envelope" style="position: absolute; right: 14px; top: 15px; color: var(--text-secondary);"></i>
+            <input type="email" id="email" class="form-control" style="padding-right: 40px;" placeholder="name@example.com" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="phone">رقم الهاتف (اختياري)</label>
+          <div style="position: relative;">
+            <i class="fas fa-phone" style="position: absolute; right: 14px; top: 15px; color: var(--text-secondary);"></i>
+            <input type="text" id="phone" class="form-control" style="padding-right: 40px;" placeholder="+201xxxxxxxxx">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">كلمة المرور</label>
+          <div style="position: relative;">
+            <i class="fas fa-lock" style="position: absolute; right: 14px; top: 15px; color: var(--text-secondary);"></i>
+            <input type="password" id="password" class="form-control" style="padding-right: 40px;" placeholder="••••••••" required>
+          </div>
+        </div>
+
+        <!-- 2. Select Line & Station -->
+        <div class="routes-section" id="routesSection">
+          <h4 style="font-size: 14px; margin-bottom: 12px; color: white;"><i class="fas fa-route" style="color: var(--accent-teal);"></i> اختر خط السير والانتظار</h4>
+          
+          <div class="form-group">
+            <label class="form-label" for="lineSelect">خط السير المفضل</label>
+            <select id="lineSelect" class="form-control" onchange="populateStations(this.value)" required>
+              <option value="">-- اختر خطاً --</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="stationSelect">محطة الانتظار</label>
+            <select id="stationSelect" class="form-control" required disabled>
+              <option value="">-- اختر محطة أولاً --</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 15px;">
+          <i class="fas fa-user-plus"></i> إنشاء حساب راكب
+        </button>
+      </div>
+    </form>
+
+    <div class="login-link">
+      <span style="color: var(--text-secondary);">لديك حساب بالفعل؟</span>
+      <a href="/login.html" style="font-weight: 600;">تسجيل الدخول</a>
+    </div>
+  </div>
+
+  <script src="/js/shared.js"></script>
+  <script>
+    let fetchedLines = [];
+
+    async function verifyInviteCode() {
+      const code = document.getElementById('invite_code').value.trim();
+      const statusBox = document.getElementById('inviteStatusBox');
+      const detailsSection = document.getElementById('detailsSection');
+      const routesSection = document.getElementById('routesSection');
+      const verifyBtn = document.getElementById('verifyInviteBtn');
+
+      if (!code) {
+        showStatus('يرجى كتابة كود الدعوة أولاً.', 'error');
+        return;
+      }
+
+      verifyBtn.disabled = true;
+      verifyBtn.innerText = 'تحقق...';
+
+      try {
+        const response = await fetch(`/api/auth/invite-details?code=${encodeURIComponent(code)}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'فشل التحقق من الكود');
+        }
+
+        // Success
+        showStatus(`كود صالح لمؤسسة: <b>${data.tenantName}</b>`, 'success');
+        
+        // Save lines
+        fetchedLines = data.lines;
+
+        // Populate lines dropdown
+        const lineSelect = document.getElementById('lineSelect');
+        lineSelect.innerHTML = '<option value="">-- اختر خطاً --</option>';
+        data.lines.forEach(l => {
+          lineSelect.innerHTML += `<option value="${l.id}">${l.name} (${l.start_point} ➔ ${l.end_point})</option>`;
+        });
+
+        // Show sections
+        detailsSection.style.display = 'block';
+        routesSection.style.display = 'block';
+        
+        // Prevent editing invitation code once verified to keep consistency
+        document.getElementById('invite_code').disabled = true;
+        verifyBtn.style.display = 'none';
+
+      } catch (err) {
+        showStatus(err.message, 'error');
+        detailsSection.style.display = 'none';
+        routesSection.style.display = 'none';
+      } finally {
+        verifyBtn.disabled = false;
+        verifyBtn.innerText = 'تحقق';
+      }
+    }
+
+    function populateStations(lineId) {
+      const stationSelect = document.getElementById('stationSelect');
+      stationSelect.innerHTML = '<option value="">-- اختر محطة --</option>';
+
+      if (!lineId) {
+        stationSelect.disabled = true;
+        return;
+      }
+
+      const line = fetchedLines.find(l => l.id == lineId);
+      if (line && line.stations && line.stations.length > 0) {
+        line.stations.forEach(s => {
+          stationSelect.innerHTML += `<option value="${s.id}">${s.sequence_order}. ${s.name}</option>`;
+        });
+        stationSelect.disabled = false;
+      } else {
+        stationSelect.disabled = true;
+        showToast('هذا الخط لا يحتوي على محطات!', 'warning');
+      }
+    }
+
+    function showStatus(msg, type) {
+      const statusBox = document.getElementById('inviteStatusBox');
+      statusBox.style.display = 'flex';
+      statusBox.className = `invite-status-box invite-${type}`;
+      statusBox.innerHTML = `
+        <i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
+        <span>${msg}</span>
+      `;
+    }
+
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const invitation_code = document.getElementById('invite_code').value.trim();
+      const name = document.getElementById('name').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const password = document.getElementById('password').value;
+      const line_id = document.getElementById('lineSelect').value;
+      const station_id = document.getElementById('stationSelect').value;
+
+      if (!line_id || !station_id) {
+        showToast('يرجى تحديد خط السير ومحطة الانتظار.', 'warning');
+        return;
+      }
+
+      try {
+        const result = await apiCall('/api/auth/register-passenger', 'POST', {
+          invitation_code,
+          name,
+          email,
+          phone,
+          password,
+          line_id,
+          station_id
+        });
+
+        showToast(result.message, 'success');
+        setTimeout(() => {
+          window.location.href = '/login.html';
+        }, 1500);
+
+      } catch (err) {
+        showToast(err.message || 'فشل إنشاء الحساب', 'danger');
+      }
+    });
+  </script>
+</body>
+</html>

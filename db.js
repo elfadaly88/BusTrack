@@ -46,9 +46,17 @@ async function initDb() {
       name TEXT NOT NULL,
       slug TEXT UNIQUE NOT NULL,
       status TEXT CHECK(status IN ('active', 'suspended')) DEFAULT 'active',
+      invitation_code TEXT UNIQUE,
       created_at TEXT NOT NULL
     );
   `);
+
+  // Migrate existing tenants table to add invitation_code if missing
+  try {
+    await dbRun('ALTER TABLE tenants ADD COLUMN invitation_code TEXT;');
+  } catch (err) {
+    // Column already exists, ignore error
+  }
 
   // 2. Users Table (Super Admin user has tenant_id = NULL)
   await dbRun(`
@@ -200,6 +208,31 @@ async function initDb() {
   await dbRun('CREATE INDEX IF NOT EXISTS idx_ratings_trip ON trip_ratings(trip_id);');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_ratings_tenant ON trip_ratings(tenant_id);');
 
+  // 11. Trip Schedules Table
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS trip_schedules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL,
+      line_id INTEGER NOT NULL,
+      driver_id INTEGER NOT NULL,
+      bus_id INTEGER NOT NULL,
+      day_of_week INTEGER NOT NULL, -- 0 = Sunday, 1 = Monday, etc.
+      time_of_day TEXT NOT NULL,    -- 'HH:MM'
+      is_active INTEGER DEFAULT 1,
+      last_run TEXT,                -- 'YYYY-MM-DD'
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+      FOREIGN KEY (line_id) REFERENCES lines(id) ON DELETE CASCADE,
+      FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (bus_id) REFERENCES buses(id) ON DELETE CASCADE
+    );
+  `);
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_schedules_tenant ON trip_schedules(tenant_id);');
+
+  // Update default invitation codes for existing seeded tenants if they are NULL
+  await dbRun("UPDATE tenants SET invitation_code = 'CAIRO-UNI-101' WHERE slug = 'cairo-uni' AND invitation_code IS NULL;");
+  await dbRun("UPDATE tenants SET invitation_code = 'ORANGE-777' WHERE slug = 'orange' AND invitation_code IS NULL;");
+
   // Seed default data if users table is empty
   const userCount = await dbGet('SELECT COUNT(*) as count FROM users');
   if (userCount.count === 0) {
@@ -208,8 +241,8 @@ async function initDb() {
     const timeNow = new Date().toISOString();
 
     // Insert Tenants
-    await dbRun("INSERT INTO tenants (name, slug, status, created_at) VALUES ('جامعة القاهرة (Cairo University)', 'cairo-uni', 'active', ?)", [timeNow]);
-    await dbRun("INSERT INTO tenants (name, slug, status, created_at) VALUES ('شركة أورانج (Orange Company)', 'orange', 'active', ?)", [timeNow]);
+    await dbRun("INSERT INTO tenants (name, slug, status, invitation_code, created_at) VALUES ('جامعة القاهرة (Cairo University)', 'cairo-uni', 'active', 'CAIRO-UNI-101', ?)", [timeNow]);
+    await dbRun("INSERT INTO tenants (name, slug, status, invitation_code, created_at) VALUES ('شركة أورانج (Orange Company)', 'orange', 'active', 'ORANGE-777', ?)", [timeNow]);
 
     // Hashing passwords
     const superPassword = await bcrypt.hash('super123', 10);

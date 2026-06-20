@@ -557,3 +557,54 @@ body.ltr .station-item .num {
   margin-left: 0;
   margin-right: 10px;
 }
+
+/* Media Print Style for Reports */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt;
+  }
+  header,
+  .tabs-nav,
+  .btn,
+  #dispatchForm,
+  #scheduleForm,
+  .modal-overlay,
+  .map-container,
+  #liveMap,
+  #designerMap,
+  #toast-notification,
+  .stat-icon,
+  .logout-btn {
+    display: none !important;
+  }
+  .glass-panel {
+    background: #ffffff !important;
+    border: 1px solid #cccccc !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    padding: 10px !important;
+    margin-bottom: 20px !important;
+    border-radius: 8px !important;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    color: #000000 !important;
+  }
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+  th, td {
+    border: 1px solid #dddddd !important;
+    color: #000000 !important;
+    padding: 8px !important;
+    text-align: right !important;
+  }
+  .tab-content {
+    display: block !important;
+  }
+  .tab-content:not([style*="display: block"]) {
+    display: none !important;
+  }
+}

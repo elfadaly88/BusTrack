@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const { initDb, dbAll, dbGet, dbRun } = require('./db');
+const cron = require('node-cron');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'bustrack_super_secret_jwt_key_2026';
 const PORT = process.env.PORT || 3000;
@@ -67,6 +68,94 @@ const roleMiddleware = (roles) => {
 };
 
 // --- AUTHENTICATION ENDPOINTS ---
+
+// Validate invitation code and fetch lines/stations
+app.get('/api/auth/invite-details', async (req, res) => {
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).json({ error: 'يرجى تقديم كود الدعوة (Invitation code is required)' });
+  }
+
+  try {
+    const tenant = await dbGet('SELECT id, name, slug, status FROM tenants WHERE invitation_code = ?', [code.trim()]);
+    if (!tenant) {
+      return res.status(404).json({ error: 'كود الدعوة غير صالح (Invalid invitation code)' });
+    }
+    if (tenant.status !== 'active') {
+      return res.status(403).json({ error: 'هذه المؤسسة غير نشطة حالياً (This organization is currently inactive)' });
+    }
+
+    // Fetch lines for this tenant
+    const lines = await dbAll('SELECT id, name, start_point, end_point FROM lines WHERE tenant_id = ? AND status = "active"', [tenant.id]);
+    for (let line of lines) {
+      line.stations = await dbAll('SELECT id, name, sequence_order FROM stations WHERE line_id = ? ORDER BY sequence_order ASC', [line.id]);
+    }
+
+    res.json({
+      tenantName: tenant.name,
+      tenantId: tenant.id,
+      lines
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'حدث خطأ في الخادم (Server error)' });
+  }
+});
+
+// Register a new passenger via invitation code
+app.post('/api/auth/register-passenger', async (req, res) => {
+  const { name, email, phone, password, invitation_code, line_id, station_id } = req.body;
+  if (!name || !email || !password || !invitation_code || !line_id || !station_id) {
+    return res.status(400).json({ error: 'جميع الحقول مطلوبة (All fields are required)' });
+  }
+
+  try {
+    // 1. Check invitation code
+    const tenant = await dbGet('SELECT id, status FROM tenants WHERE invitation_code = ?', [invitation_code.trim()]);
+    if (!tenant) {
+      return res.status(404).json({ error: 'كود الدعوة غير صالح (Invalid invitation code)' });
+    }
+    if (tenant.status !== 'active') {
+      return res.status(403).json({ error: 'المؤسسة غير نشطة حالياً (Organization is suspended)' });
+    }
+
+    // 2. Check if email already registered
+    const existingUser = await dbGet('SELECT id FROM users WHERE email = ?', [email.trim()]);
+    if (existingUser) {
+      return res.status(400).json({ error: 'البريد الإلكتروني مسجل بالفعل (Email already registered)' });
+    }
+
+    // 3. Verify line and station belong to this tenant
+    const line = await dbGet('SELECT id FROM lines WHERE id = ? AND tenant_id = ?', [line_id, tenant.id]);
+    const station = await dbGet('SELECT id FROM stations WHERE id = ? AND line_id = ?', [station_id, line_id]);
+    if (!line || !station) {
+      return res.status(400).json({ error: 'المسار أو المحطة المحددة غير صالحة (Invalid line or station)' });
+    }
+
+    // 4. Create user
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    await dbRun('BEGIN TRANSACTION;');
+    const userResult = await dbRun(
+      "INSERT INTO users (tenant_id, name, email, phone, password, role) VALUES (?, ?, ?, ?, ?, 'passenger')",
+      [tenant.id, name.trim(), email.trim(), phone ? phone.trim() : '', hashedPassword]
+    );
+    const userId = userResult.lastID;
+
+    // 5. Create registration
+    await dbRun(
+      'INSERT INTO passenger_registrations (passenger_id, line_id, station_id) VALUES (?, ?, ?)',
+      [userId, line_id, station_id]
+    );
+    await dbRun('COMMIT;');
+
+    res.json({ success: true, message: 'تم التسجيل بنجاح! يمكنك الآن تسجيل الدخول.' });
+  } catch (error) {
+    await dbRun('ROLLBACK;');
+    console.error(error);
+    res.status(500).json({ error: 'حدث خطأ أثناء التسجيل (Registration error)' });
+  }
+});
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
@@ -735,6 +824,237 @@ app.delete('/api/admin/passengers/subscriptions/:sub_id', authMiddleware, roleMi
   }
 });
 
+// Get Invitation Code for Tenant
+app.get('/api/admin/invite-code', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const tenant = await dbGet('SELECT invitation_code FROM tenants WHERE id = ?', [req.user.tenant_id]);
+    res.json({ code: tenant ? tenant.invitation_code : null });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update/Set Invitation Code for Tenant
+app.post('/api/admin/invite-code', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  const { code } = req.body;
+  if (!code || !code.trim()) {
+    return res.status(400).json({ error: 'الرجاء إدخال كود دعوة صالح (Invalid code)' });
+  }
+
+  try {
+    const existing = await dbGet('SELECT id FROM tenants WHERE invitation_code = ? AND id != ?', [code.trim(), req.user.tenant_id]);
+    if (existing) {
+      return res.status(400).json({ error: 'هذا الكود مستخدم بالفعل من قبل مؤسسة أخرى (Code already in use)' });
+    }
+
+    await dbRun('UPDATE tenants SET invitation_code = ? WHERE id = ?', [code.trim(), req.user.tenant_id]);
+    res.json({ success: true, code: code.trim() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Report 1: Average Arrival Time compared to ETA
+app.get('/api/admin/reports/avg-arrivals', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const rows = await dbAll(`
+      SELECT 
+        l.name as line_name,
+        s.name as station_name,
+        s.eta_offset_mins,
+        COUNT(a.id) as total_arrivals,
+        ROUND(AVG(
+          (strftime('%s', a.actual_arrival_time) - strftime('%s', t.start_time)) / 60.0 - s.eta_offset_mins
+        ), 1) as avg_diff_mins
+      FROM trip_station_arrivals a
+      JOIN stations s ON a.station_id = s.id
+      JOIN trips t ON a.trip_id = t.id
+      JOIN lines l ON s.line_id = l.id
+      WHERE t.tenant_id = ? AND t.start_time IS NOT NULL
+      GROUP BY s.id
+      ORDER BY l.id, s.sequence_order
+    `, [req.user.tenant_id]);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Report 2: Driver Trip Logs with Duration
+app.get('/api/admin/reports/driver-logs', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const rows = await dbAll(`
+      SELECT 
+        t.id as trip_id,
+        l.name as line_name,
+        u.name as driver_name,
+        b.bus_number,
+        t.start_time,
+        t.end_time,
+        ROUND((strftime('%s', t.end_time) - strftime('%s', t.start_time)) / 60.0, 1) as duration_mins
+      FROM trips t
+      JOIN lines l ON t.line_id = l.id
+      JOIN users u ON t.driver_id = u.id
+      JOIN buses b ON t.bus_id = b.id
+      WHERE t.tenant_id = ? AND t.status = 'completed' AND t.start_time IS NOT NULL AND t.end_time IS NOT NULL
+      ORDER BY t.end_time DESC
+    `, [req.user.tenant_id]);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Report 3: Delay Requests Statistics
+app.get('/api/admin/reports/delay-stats', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const rows = await dbAll(`
+      SELECT 
+        s.name as station_name,
+        l.name as line_name,
+        COUNT(d.id) as total_delay_requests,
+        SUM(d.delay_mins) as total_delay_mins_requested,
+        ROUND(AVG(d.delay_mins), 1) as avg_delay_mins_requested
+      FROM delay_alerts d
+      JOIN stations s ON d.station_id = s.id
+      JOIN lines l ON s.line_id = l.id
+      JOIN trips t ON d.trip_id = t.id
+      WHERE t.tenant_id = ?
+      GROUP BY s.id
+      ORDER BY total_delay_requests DESC
+    `, [req.user.tenant_id]);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Report 4: Weekly Active Passenger Counts (Current & Historical)
+app.get('/api/admin/reports/active-passengers', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    // Current week active passengers count (last 7 days)
+    const currentWeekCount = await dbGet(`
+      SELECT COUNT(DISTINCT passenger_id) as active_count
+      FROM (
+        SELECT d.passenger_id, d.created_at 
+        FROM delay_alerts d
+        JOIN trips t ON d.trip_id = t.id
+        WHERE t.tenant_id = ? AND d.created_at >= datetime('now', '-7 days')
+        
+        UNION ALL
+        
+        SELECT r.passenger_id, r.created_at 
+        FROM trip_ratings r
+        WHERE r.tenant_id = ? AND r.created_at >= datetime('now', '-7 days')
+      )
+    `, [req.user.tenant_id, req.user.tenant_id]);
+
+    // Trend counts for the last 4 weeks
+    const trend = await dbAll(`
+      SELECT 
+        strftime('%Y-%W', created_at) as week_identifier,
+        COUNT(DISTINCT passenger_id) as active_count
+      FROM (
+        SELECT d.passenger_id, d.created_at 
+        FROM delay_alerts d
+        JOIN trips t ON d.trip_id = t.id
+        WHERE t.tenant_id = ? AND d.created_at >= datetime('now', '-30 days')
+        
+        UNION ALL
+        
+        SELECT r.passenger_id, r.created_at 
+        FROM trip_ratings r
+        WHERE r.tenant_id = ? AND r.created_at >= datetime('now', '-30 days')
+      )
+      GROUP BY week_identifier
+      ORDER BY week_identifier DESC
+    `, [req.user.tenant_id, req.user.tenant_id]);
+
+    res.json({
+      currentActive: currentWeekCount ? currentWeekCount.active_count : 0,
+      trend
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all Schedules
+app.get('/api/admin/schedules', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const schedules = await dbAll(`
+      SELECT s.*, l.name as line_name, u.name as driver_name, b.bus_number
+      FROM trip_schedules s
+      JOIN lines l ON s.line_id = l.id
+      JOIN users u ON s.driver_id = u.id
+      JOIN buses b ON s.bus_id = b.id
+      WHERE s.tenant_id = ?
+      ORDER BY s.day_of_week ASC, s.time_of_day ASC
+    `, [req.user.tenant_id]);
+    res.json(schedules);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create Schedule
+app.post('/api/admin/schedules', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  const { line_id, driver_id, bus_id, day_of_week, time_of_day } = req.body;
+  if (line_id === undefined || driver_id === undefined || bus_id === undefined || day_of_week === undefined || !time_of_day) {
+    return res.status(400).json({ error: 'الرجاء ملء كافة بيانات الجدولة (Missing schedule parameters)' });
+  }
+
+  try {
+    const line = await dbGet('SELECT id FROM lines WHERE id = ? AND tenant_id = ?', [line_id, req.user.tenant_id]);
+    const driver = await dbGet("SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role = 'driver'", [driver_id, req.user.tenant_id]);
+    const bus = await dbGet('SELECT id FROM buses WHERE id = ? AND tenant_id = ?', [bus_id, req.user.tenant_id]);
+
+    if (!line || !driver || !bus) {
+      return res.status(400).json({ error: 'الخط أو السائق أو الحافلة غير موجود في هذه المؤسسة' });
+    }
+
+    const timePattern = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timePattern.test(time_of_day)) {
+      return res.status(400).json({ error: 'تنسيق الوقت غير صالح. يرجى استخدام HH:MM' });
+    }
+
+    const created_at = new Date().toISOString();
+    const result = await dbRun(
+      `INSERT INTO trip_schedules (tenant_id, line_id, driver_id, bus_id, day_of_week, time_of_day, is_active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [req.user.tenant_id, line_id, driver_id, bus_id, day_of_week, time_of_day, created_at]
+    );
+
+    res.json({
+      id: result.lastID,
+      tenant_id: req.user.tenant_id,
+      line_id,
+      driver_id,
+      bus_id,
+      day_of_week,
+      time_of_day,
+      is_active: 1
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete Schedule
+app.delete('/api/admin/schedules/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const existing = await dbGet('SELECT id FROM trip_schedules WHERE id = ? AND tenant_id = ?', [req.params.id, req.user.tenant_id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'الجدول غير موجود أو غير تابع لك' });
+    }
+
+    await dbRun('DELETE FROM trip_schedules WHERE id = ? AND tenant_id = ?', [req.params.id, req.user.tenant_id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 // --- PASSENGER ENDPOINTS ---
 
@@ -1162,6 +1482,58 @@ io.on('connection', (socket) => {
   });
 });
 
+
+// --- AUTO TRIP SCHEDULER (CRON) ---
+cron.schedule('* * * * *', async () => {
+  const now = new Date();
+  
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Africa/Cairo',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23'
+    });
+    
+    const parts = {};
+    formatter.formatToParts(now).forEach(p => parts[p.type] = p.value);
+    
+    const hours = parts.hour;
+    const minutes = parts.minute;
+    const timeStr = `${hours}:${minutes}`;
+    
+    const weekdayFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Cairo', weekday: 'long' });
+    const weekdayName = weekdayFormatter.format(now);
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayOfWeek = weekdays.indexOf(weekdayName);
+    
+    const dateStr = `${parts.year}-${parts.month}-${parts.day}`;
+    
+    const schedules = await dbAll(
+      `SELECT * FROM trip_schedules 
+       WHERE day_of_week = ? AND time_of_day = ? AND is_active = 1 
+       AND (last_run IS NULL OR last_run != ?)`,
+      [dayOfWeek, timeStr, dateStr]
+    );
+    
+    for (const schedule of schedules) {
+      await dbRun(
+        `INSERT INTO trips (tenant_id, line_id, driver_id, bus_id, status) 
+         VALUES (?, ?, ?, ?, 'scheduled')`,
+        [schedule.tenant_id, schedule.line_id, schedule.driver_id, schedule.bus_id]
+      );
+      
+      await dbRun(
+        `UPDATE trip_schedules SET last_run = ? WHERE id = ?`,
+        [dateStr, schedule.id]
+      );
+      
+      console.log(`[Cron Scheduler] Automatically scheduled trip for tenant ${schedule.tenant_id}, line ${schedule.line_id} at ${timeStr}`);
+    }
+  } catch (err) {
+    console.error('[Cron Scheduler] Error running automatic scheduling:', err);
+  }
+});
 
 // Start server after initializing DB
 initDb().then(() => {
